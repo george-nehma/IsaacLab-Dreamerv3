@@ -306,9 +306,10 @@ class DirectRLEnv(gym.Env):
         if self.cfg.wait_for_textures and self.sim.has_rtx_sensors():
             while SimulationManager.assets_loading():
                 self.sim.render()
-
+        self.firsts = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.firsts[indices] = True
         # return observations
-        return self._get_observations(), self.extras
+        return self._get_observations(is_first=self.firsts), self.extras
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         """Execute one time-step of the environment's dynamics.
@@ -334,7 +335,10 @@ class DirectRLEnv(gym.Env):
         Returns:
             A tuple containing the observations, rewards, resets (terminated and truncated) and extras.
         """
-        action = action.to(self.device)
+        self.firsts[:] = False
+        if isinstance(action, np.ndarray):
+            action = torch.from_numpy(action).to(device=self.device)
+        # action = action.to(self.device)
         # add action noise
         if self.cfg.action_noise_model:
             action = self._action_noise_model(action)
@@ -386,7 +390,7 @@ class DirectRLEnv(gym.Env):
                 self.event_manager.apply(mode="interval", dt=self.step_dt)
 
         # update observations
-        self.obs_buf = self._get_observations()
+        self.obs_buf = self._get_observations(is_first=self.firsts)
 
         # add observation noise
         # note: we apply no noise to the state space (since it is used for critic networks)
