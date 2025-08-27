@@ -67,5 +67,17 @@ _build
 # Tests
 tests/
 
+# Large files
+*.pt 
+/logs/
+/source/STTR
+/source/lander_assets/*.fbx
+/source/lander_assets/*.png
+/source/lander_assets/*.jpg
+/source/lander_assets/*.usd
+/source/lander_assets/*.fbm
+/source/lander_assets/textures/
+/source/lander_assets/Textures/
+
 # Docker history
 .isaac-lab-docker-history
