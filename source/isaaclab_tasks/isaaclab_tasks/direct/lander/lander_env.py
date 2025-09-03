@@ -191,6 +191,10 @@ class LanderEnv(DirectRLEnv):
         # add handle for debug visualization (this is set to a valid handle inside set_debug_vis)
         self.set_debug_vis(self.cfg.debug_vis)
 
+    def close(self):
+        """Cleanup for the environment."""
+        super().close()
+
     def _setup_scene(self):
         self._robot = RigidObject(self.cfg.robot)
         self._camera = Camera(self.cfg.camera)

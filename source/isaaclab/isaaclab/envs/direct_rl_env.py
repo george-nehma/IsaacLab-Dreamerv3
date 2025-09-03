@@ -309,7 +309,10 @@ class DirectRLEnv(gym.Env):
         self.firsts = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.firsts[indices] = True
         # return observations
-        return self._get_observations(is_first=self.firsts), self.extras
+        if self.spec.name == "Isaac-PlanetaryLander-Direct":
+            return self._get_observations(is_first=self.firsts), self.extras
+        else:
+            return self._get_observations(), self.extras
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         """Execute one time-step of the environment's dynamics.
@@ -390,7 +393,11 @@ class DirectRLEnv(gym.Env):
                 self.event_manager.apply(mode="interval", dt=self.step_dt)
 
         # update observations
-        self.obs_buf = self._get_observations(is_first=self.firsts)
+        if self.spec.name == "Isaac-PlanetaryLander-Direct":
+            self.obs_buf = self._get_observations(is_first=self.firsts)
+        else:
+            self.obs_buf = self._get_observations()
+        
 
         # add observation noise
         # note: we apply no noise to the state space (since it is used for critic networks)
