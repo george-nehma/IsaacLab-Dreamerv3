@@ -204,6 +204,5 @@ class Damy:
 
     def step(self, action):
         return lambda: self._env.step(action)
-
     def reset(self):
         return lambda: self._env.reset()

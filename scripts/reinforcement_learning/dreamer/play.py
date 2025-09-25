@@ -20,12 +20,12 @@ from isaaclab.app import AppLauncher
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Play a checkpoint of an RL agent from skrl.")
 parser.add_argument("--video", action="store_true", default=True, help="Record videos during training.")
-parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
+parser.add_argument("--video_length", type=int, default=600, help="Length of the recorded video (in steps).")
 parser.add_argument(
     "--disable_fabric", action="store_true", default=True, help="Disable fabric and use USD I/O operations."
 )
 parser.add_argument("--num_envs", type=int, default=1, help="Number of environments to simulate.")
-parser.add_argument("--task", type=str, default="Isaac-PlanetaryLander-Direct-v0", help="Name of the task.")
+parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
     "--agent",
     type=str,
@@ -102,6 +102,8 @@ import torch
 from torch import nn
 from torch import distributions as torchd
 
+import matplotlib
+matplotlib.use("Agg") 
 import matplotlib.pyplot as plt
 import pickle
 
@@ -119,7 +121,7 @@ from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import dump_pickle, dump_yaml
 
-from source.DreamerRL.isaaclab_wrapper import IsaacLabToDreamerWrapper, IsaacLabMultiEnvWrapper
+from source.DreamerRL.isaaclab_wrapper import IsaacLabDreamerWrapper
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -276,32 +278,7 @@ def make_env(env_cfg, config, mode, id):
         # You may need to customize this based on your environment's observation structure
         obs_keys = getattr(config, 'obs_keys', None)  # Allow configuration of obs keys
         
-        # Check if environment has multiple parallel instances
-        sample_obs, _ = env.reset()
-        
-        # If IsaacLab returns multiple environment observations, handle appropriately
-        if isinstance(sample_obs, dict):
-            # Check if any observation values have batch dimensions
-            is_multi_env = False
-            num_envs = 1
-            
-            for v in sample_obs.values():
-                if hasattr(v, 'shape') and len(v.shape) > 1:
-                    # Assume first dimension is batch/env dimension if > 1
-                    potential_num_envs = v.shape[0]
-                    if potential_num_envs > 1:
-                        is_multi_env = True
-                        num_envs = potential_num_envs
-                        break
-        
-        if is_multi_env and num_envs > 1:
-            # Handle multi-environment case
-            multi_wrapper = IsaacLabMultiEnvWrapper(env, num_envs, obs_keys)
-            # Create single environment wrapper for this specific instance
-            env = multi_wrapper.create_single_env_wrapper(id % num_envs)
-        else:
-            # Single environment case
-            env = IsaacLabToDreamerWrapper(env, obs_keys)
+        env = IsaacLabDreamerWrapper(env, obs_keys)
             
         # Apply standard wrappers
         env = wrappers.NormalizeActions(env)
@@ -343,7 +320,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     logger = tools.Logger(logdir, dreamer_cfg.action_repeat * step)
 
     print("Create envs.")
-    test_env = make_env(env_cfg,dreamer_cfg, "video", 0)
+    test_env = make_env(env_cfg,dreamer_cfg, "no-video", 0)
     test_env = Damy(test_env)
     directory = dreamer_cfg.traindir
     test_eps = tools.load_episodes(directory, limit=dreamer_cfg.dataset_size)
@@ -395,12 +372,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     done = np.ones(1, bool)
     obs = [None]
     # reset environment
-    results = [test_env.reset()]
-    result = [r() for r in results]
-    obs[0] = result[0][0]
+    r = test_env.reset()
+    result = r()
+    obs[0] = result
     timestep = 0
     agent_state = None
-    # state_hist = []
+    state_hist = []
     control_hist = []
     reward_hist = []
     # simulate environment
@@ -418,10 +395,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                 ]
             else:
                 action = np.array(action)
-            results = [test_env.step(action)]
-            results = [r() for r in results]
-            if not isinstance(results[0][1], float) :
-                results = results[0]
+            r = test_env.step(action)
+            results = r()
+            if not isinstance(results[1], float) :
+                # results = results[0]
                 test = []
                 for i in range(1): # only one env
                     tuple_entry = []
@@ -436,7 +413,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             obs, reward, done = zip(*[p[:3] for p in results])
             done = np.array(done)
             reward_hist.append(reward[0])
-            # state_hist.append(obs['log/dynstates'][0])
+            state_hist.append(obs[0]['state'])
             control_hist.append(unnormalize(action[0]['action'][:5],np.array([0,0,0,0,0]), np.array([3000,3000,3000,3000,3000])))
 
         if args_cli.video:
@@ -450,6 +427,60 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
 
+        if done[0]:
+            break
+
+    state_traj = np.stack(state_hist)
+    actions = np.stack(control_hist)
+    rewards = np.stack(reward_hist)
+
+    timesteps = np.arange(state_traj.shape[0])
+
+    # --- Plot State Trajectories ---
+    state_labels = ["x", "y", "z", "xdot", "ydot", "zdot"]
+
+    plt.figure(figsize=(12, 8))
+    for i in range(state_traj.shape[1]):
+        plt.plot(timesteps, state_traj[:, i], label=state_labels[i])
+    plt.xlabel("Timestep")
+    plt.ylabel("State Value")
+    plt.title("State Trajectories")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("state_trajectories.png", dpi=300)
+    plt.close()
+
+    # --- Plot Reward History ---
+
+    plt.figure(figsize=(12, 8))
+    plt.plot(timesteps, rewards, label="Total Reward")
+    plt.xlabel("Timestep")
+    plt.ylabel("Reward Value")
+    plt.title("Reward History")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("reward_history.png", dpi=300)
+    plt.close()
+
+    # --- Plot Control History ---
+    action_labels = ["x+", "x-", "y+", "y-", "z+"]
+
+    plt.figure(figsize=(12, 8))
+    for i in range(actions.shape[1]):
+        plt.step(timesteps, actions[:, i], where='post', label=action_labels[i])
+    plt.xlabel("Timestep")
+    plt.ylabel("Control Value")
+    plt.title("Control History")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("control_history.png", dpi=300)
+    plt.close()
+
+
+
     # close the simulator
     test_env.close()
 
@@ -458,7 +489,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 if __name__ == "__main__":
     # run the main function
     # specify directory for logging experiments (load checkpoint)
-    log_root_path = os.path.join("logs", "IsaacLab", "lander_direct")
+    log_root_path = os.path.join("logs", "IsaacLab", "lander_states_direct")
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
     # get checkpoint path

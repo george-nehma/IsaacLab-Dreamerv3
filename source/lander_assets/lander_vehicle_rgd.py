@@ -16,8 +16,8 @@ LUNAR_LANDER_CFG = RigidObjectCfg(
         usd_path=f"source/lander_assets/fakelander2.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-            solver_position_iteration_count=4,
-            solver_velocity_iteration_count=0,
+            solver_position_iteration_count=16,
+            solver_velocity_iteration_count=2,
             max_angular_velocity=1000.0,
             max_linear_velocity=1000.0,
             max_depenetration_velocity=1.0,
@@ -25,7 +25,7 @@ LUNAR_LANDER_CFG = RigidObjectCfg(
             retain_accelerations=False,
         ),
         mass_props=sim_utils.MassPropertiesCfg(
-            density=1000.0,
+            density=10.0,
             mass=500.0,
         ),
         # collision_props=sim_utils.CollisionPropertiesCfg(
@@ -36,6 +36,7 @@ LUNAR_LANDER_CFG = RigidObjectCfg(
         # ),
         
     ),
+    debug_vis=True,
     init_state=RigidObjectCfg.InitialStateCfg(
         pos=(0.0, 0.0, 20.0), #joint_pos={".*joint": 0.0},
     ),

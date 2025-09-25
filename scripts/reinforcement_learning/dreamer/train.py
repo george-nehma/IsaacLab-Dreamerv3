@@ -12,8 +12,8 @@ parser = argparse.ArgumentParser(description="Train an RL agent with MBRL.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
 parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
 parser.add_argument("--video_interval", type=int, default=2000, help="Interval between video recordings (in steps).")
-parser.add_argument("--num_envs", type=int, default=2, help="Number of environments to simulate.")
-parser.add_argument("--task", type=str, default="Isaac-PlanetaryLander-Direct-v0", help="Name of the task.")
+parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument(
     "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
@@ -72,6 +72,7 @@ from source.DreamerRL.parallel import Parallel, Damy
 import torch
 from torch import nn
 from torch import distributions as torchd
+import psutil
 
 import matplotlib.pyplot as plt
 import pickle
@@ -87,6 +88,7 @@ from isaaclab.envs import (
 import gymnasium as gym
 import random
 from datetime import datetime
+import time
 
 from packaging import version
 
@@ -101,7 +103,7 @@ from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import dump_pickle, dump_yaml
 
-from source.DreamerRL.isaaclab_wrapper import IsaacLabToDreamerWrapper, IsaacLabMultiEnvWrapper
+from source.DreamerRL.isaaclab_wrapper import IsaacLabDreamerWrapper
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils.hydra import hydra_task_config
@@ -256,32 +258,7 @@ def make_env(env_cfg, config, mode, id):
         # You may need to customize this based on your environment's observation structure
         obs_keys = getattr(config, 'obs_keys', None)  # Allow configuration of obs keys
         
-        # Check if environment has multiple parallel instances
-        sample_obs, _ = env.reset()
-        
-        # If IsaacLab returns multiple environment observations, handle appropriately
-        if isinstance(sample_obs, dict):
-            # Check if any observation values have batch dimensions
-            is_multi_env = False
-            num_envs = 1
-            
-            for v in sample_obs.values():
-                if hasattr(v, 'shape') and len(v.shape) > 1:
-                    # Assume first dimension is batch/env dimension if > 1
-                    potential_num_envs = v.shape[0]
-                    if potential_num_envs > 1:
-                        is_multi_env = True
-                        num_envs = potential_num_envs
-                        break
-        
-        if is_multi_env and num_envs > 1:
-            # Handle multi-environment case
-            multi_wrapper = IsaacLabMultiEnvWrapper(env, num_envs, obs_keys)
-            # Create single environment wrapper for this specific instance
-            env = multi_wrapper.create_single_env_wrapper(id % num_envs)
-        else:
-            # Single environment case
-            env = IsaacLabToDreamerWrapper(env, obs_keys)
+        env = IsaacLabDreamerWrapper(env, obs_keys)
             
         # Apply standard wrappers
         env = wrappers.NormalizeActions(env)
@@ -592,17 +569,23 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         except Exception:
             pass
 
-
 if __name__ == "__main__":
+    start_time = time.time()
     # run the main function
     parser = argparse.ArgumentParser()
     parser.add_argument("--configs", nargs="+")
 
     args, remaining = parser.parse_known_args()
-    configs = yaml.safe_load(
-        (pathlib.Path(__file__).resolve().parents[3] / "source" / "isaaclab_tasks" / "isaaclab_tasks" / "direct" / "lander" / "agents" / "dreamer_cfg.yaml").read_text()
-    )
-    configs["defaults"]["logdir"] = f"logs/IsaacLab/lander_direct/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    if args_cli.task.startswith('Isaac-PlanetaryLander-Direct-States-'):
+        configs = yaml.safe_load(
+            (pathlib.Path(__file__).resolve().parents[3] / "source" / "isaaclab_tasks" / "isaaclab_tasks" / "direct" / "lander" / "agents" / "dreamer_states_cfg.yaml").read_text()
+        )
+        configs["defaults"]["logdir"] = f"logs/IsaacLab/lander_states_direct/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    else:
+        configs = yaml.safe_load(
+            (pathlib.Path(__file__).resolve().parents[3] / "source" / "isaaclab_tasks" / "isaaclab_tasks" / "direct" / "lander" / "agents" / "dreamer_cfg.yaml").read_text()
+        )
+        configs["defaults"]["logdir"] = f"logs/IsaacLab/lander_direct/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     def recursive_update(base, update):
         for key, value in update.items():
@@ -620,6 +603,14 @@ if __name__ == "__main__":
         arg_type = tools.args_type(value)
         parser.add_argument(f"--{key}", type=arg_type, default=arg_type(value))
     main(dreamer_cfg=parser.parse_args(remaining)) # type: ignore
-    # main()
+
+    end_time = time.time()
+    elapsed = end_time - start_time  # seconds
+
+    # Convert to hrs:min:sec
+    hours, rem = divmod(elapsed, 3600)
+    minutes, seconds = divmod(rem, 60)
+
+    print(f"Runtime: {int(hours)}h {int(minutes)}m {seconds:.2f}s")
     # close sim app
     simulation_app.close()

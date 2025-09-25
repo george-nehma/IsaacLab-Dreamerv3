@@ -195,7 +195,7 @@ class QuadcopterEnv(DirectRLEnv):
     def _reset_idx(self, env_ids: torch.Tensor | None):
         if env_ids is None or len(env_ids) == self.num_envs:
             env_ids = self._robot._ALL_INDICES
-
+        print(f"Resetting {env_ids} environments.")
         # Logging
         final_distance_to_goal = torch.linalg.norm(
             self._desired_pos_w[env_ids] - self._robot.data.root_pos_w[env_ids], dim=1
