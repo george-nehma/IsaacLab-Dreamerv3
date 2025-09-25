@@ -15,7 +15,7 @@ from isaaclab.envs import DirectRLEnv, DirectRLEnvCfg, ViewerCfg
 from isaaclab.envs.ui import BaseEnvWindow
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sim import SimulationCfg
+from isaaclab.sim import SimulationCfg, PhysxCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import subtract_frame_transforms
@@ -36,10 +36,10 @@ from source.lander_assets.lander_vehicle_rgd import LUNAR_LANDER_CFG
 from isaaclab.markers import CUBOID_MARKER_CFG  # isort: skip
 
 
-class LanderEnvWindow(BaseEnvWindow):
+class LanderStatesEnvWindow(BaseEnvWindow):
     """Window manager for the Quadcopter environment."""
 
-    def __init__(self, env: LanderEnv, window_name: str = "IsaacLab"):
+    def __init__(self, env: LanderStatesEnv, window_name: str = "IsaacLab"):
         """Initialize the window.
 
         Args:
@@ -57,39 +57,41 @@ class LanderEnvWindow(BaseEnvWindow):
 
 
 @configclass
-class LanderEnvCfg(DirectRLEnvCfg):
+class LanderStatesEnvCfg(DirectRLEnvCfg):
     # env
-    decimation = 2
+    decimation = 12
     episode_length_s = 90.0
     debug_vis = True
-    pix_x = 64
-    pix_y = 64
     # action_scale = 100.0  # [N]
 
     # robot
     robot: RigidObjectCfg = LUNAR_LANDER_CFG.replace(prim_path="/World/envs/env_.*/Robot")
 
     # camera
-    camera: CameraCfg = CameraCfg(
-        prim_path="/World/envs/env_.*/Robot/MainBody/Camera",
-        offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, -2.03/2), rot=rot_utils.euler_angles_to_quats(np.array([-90, 90, 0]), degrees=True).tolist(), convention="world"),
-        data_types=["rgb"],
-        debug_vis=True,
-        spawn=sim_utils.PinholeCameraCfg(
-            focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 20.0)
-        ),
-        width=pix_x,
-        height=pix_y,
-    )
-    write_image_to_file = True
+    # camera: CameraCfg = CameraCfg(
+    #     prim_path="/World/envs/env_.*/Robot/MainBody/Camera",
+    #     offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, -2.03/2), rot=rot_utils.euler_angles_to_quats(np.array([-90, 90, 0]), degrees=True).tolist(), convention="world"),
+    #     data_types=["rgb"],
+    #     spawn=sim_utils.PinholeCameraCfg(
+    #         focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 20.0)
+    #     ),
+    #     width=64,
+    #     height=64,
+    # )
+    # write_image_to_file = True
 
-    ui_window_class_type = LanderEnvWindow
+    ui_window_class_type = LanderStatesEnvWindow
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,
         render_interval=decimation,
         gravity = (0.0, 0.0, -1.62),  # [m/s^2]
+        physx=PhysxCfg(
+            min_position_iteration_count=4,
+            min_velocity_iteration_count=2,
+            enable_stabilization=True, 
+        ),
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
@@ -122,17 +124,17 @@ class LanderEnvCfg(DirectRLEnvCfg):
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, -2.03/2)),
         ray_alignment="yaw",
         pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.0, 1.0]),
-        debug_vis=False,
+        debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
-    contact_forces: ContactSensorCfg = ContactSensorCfg(
-        prim_path="/World/envs/env_.*/Robot/MainBody", 
-        update_period=0.0, 
-        track_air_time = True,
-        debug_vis=True,
-        history_length=5,
-        filter_prim_paths_expr=["/World/ground"]
-    )
+    # contact_forces: ContactSensorCfg = ContactSensorCfg(
+    #     prim_path="/World/envs/env_.*/Robot/MainBody", 
+    #     update_period=0.0, 
+    #     track_air_time = True,
+    #     debug_vis=True,
+    #     history_length=5,
+    #     filter_prim_paths_expr=["/World/ground"]
+    # )
     imu: ImuCfg = ImuCfg(
         prim_path="/World/envs/env_.*/Robot/MainBody",
         update_period=0.0,
@@ -144,7 +146,7 @@ class LanderEnvCfg(DirectRLEnvCfg):
     # spaces
     action_space = 5 # 3D translational
     state_space = 6
-    observation_space = (camera.height*camera.width*3) + 1 + 3 + 3 + 3  # rgb, height, lin_acc, ang_acc, lin_vel, ang_vel, contact
+    observation_space = state_space # pos x, pos y, pos z, vel x, vel y, vel z
 
     # reward scales
     lin_vel_reward_scale = -100
@@ -153,9 +155,12 @@ class LanderEnvCfg(DirectRLEnvCfg):
     spower_reward_scale = -0.3
     # ang_vel_reward_scale = -0.01
     vlim = 0.5  # [m/s] linear velocity limit for landing
+    rlim = 2
+    prev_shaping = None
+
 
     # change viewer settings
-    viewer = ViewerCfg(eye=(20.0, 20.0, 20.0))
+    viewer = ViewerCfg(eye=(20.0, 20.0, 50.0))
 
     # reset
     max_cart_pos = 3.0  # the cart is reset if it exceeds that position [m]
@@ -163,11 +168,15 @@ class LanderEnvCfg(DirectRLEnvCfg):
 
     # reward scales
 
-class LanderEnv(DirectRLEnv):
-    cfg: LanderEnvCfg
+class LanderStatesEnv(DirectRLEnv):
+    cfg: LanderStatesEnvCfg
 
-    def __init__(self, cfg: LanderEnvCfg, render_mode: str | None = None, **kwargs):
+    def __init__(self, cfg: LanderStatesEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
+
+        self.actionHigh = np.full(self.action_space.shape, 3000, dtype=np.float32) # max thrust of RCS thrusters [N] and moment 
+        self.actionLow = np.full(self.action_space.shape, 0, dtype=np.float32) # min thrust of RCS thrusters [N] and moment
+        self.action_space = gym.spaces.Box(dtype=np.float32, shape=self.actionHigh.shape ,low=self.actionLow, high=self.actionHigh)
 
         # Total thrust and moment applied to the CoG of the lander
         self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
@@ -179,11 +188,7 @@ class LanderEnv(DirectRLEnv):
         # Logging
         self._episode_sums = {
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
-            for key in [
-                "altitude",
-                "lin_vel",
-                "power",
-            ]
+            for key in ["reward"]
         }
         # Get specific body indices
         self._body_id = self._robot.find_bodies("MainBody")[0]
@@ -200,14 +205,14 @@ class LanderEnv(DirectRLEnv):
 
     def _setup_scene(self):
         self._robot = RigidObject(self.cfg.robot)
-        self._camera = Camera(self.cfg.camera)
+        # self._camera = Camera(self.cfg.camera)
         self._height_scanner = RayCaster(self.cfg.height_scanner)
-        self._contact_forces = ContactSensor(self.cfg.contact_forces)
+        # self._contact_forces = ContactSensor(self.cfg.contact_forces)
         self._imu = Imu(self.cfg.imu)
         self.scene.rigid_objects["robot"] = self._robot
-        self.scene.sensors["camera"] = self._camera
+        # self.scene.sensors["camera"] = self._camera
         self.scene.sensors["height_scanner"] = self._height_scanner
-        self.scene.sensors["contact_forces"] = self._contact_forces
+        # self.scene.sensors["contact_forces"] = self._contact_forces
         self.scene.sensors["imu"] = self._imu
 
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
@@ -222,111 +227,123 @@ class LanderEnv(DirectRLEnv):
 
     # takes normalised action and convert to real thrust and moment. Fz maps [-1,1] to [0, 1]
     def _pre_physics_step(self, actions: torch.Tensor):
-        self._actions = actions.clone().clamp(-1.0, 1.0)
+        # self._actions = actions.clone().clamp(-1.0, 1.0)
+        self._actions = actions.clone().clamp(torch.tensor(self.action_space.low, device=self.device), torch.tensor(self.action_space.high, device=self.device))
         xthrust = self._actions[:,0] - self._actions[:,1]  # x thrust
         ythrust = self._actions[:,2] - self._actions[:,3]
         zthrust = self._actions[:,4]  # z thrust
         thrusts = torch.stack([xthrust, ythrust, zthrust], dim=-1)  # [N, 3]
-        self._thrust[:, 0, :] = 0.5 * (thrusts + 1) * (3000 - 0) + 0  # Fx maps [-1,1] to [0, 3000] [N]
+        self._thrust[:, 0, :] = thrusts  # [N]
         # self._moment[:, 0, :] = 0 * self.cfg.moment_scale * self._actions[:, 1:] # don't update moment in 2D env but pass through as zero
 
     def _apply_action(self):
         self._robot.set_external_force_and_torque(self._thrust, self._moment, body_ids=self._body_id)
 
-    def _get_observations(self, is_first) -> dict:
-        data_type = "rgb"
-        if "rgb" in self.cfg.camera.data_types:
-            camera_data = self._camera.data.output[data_type] / 255.0
-            if self.cfg.write_image_to_file:
-                save_images_to_file(camera_data, f"lander_cam_{data_type}.png")
-            # normalize the camera data for better training results
-            mean_tensor = torch.mean(camera_data, dim=(1, 2), keepdim=True)
-            camera_data -= mean_tensor
+    def _get_observations(self) -> dict:
         
-        height_data = (self._height_scanner.data.pos_w[..., -1] - self._height_scanner.data.ray_hits_w[:, 60, -1] - 2.03/2).unsqueeze(-1)
-        lin_acc = self._imu.data.lin_acc_b
-        ang_acc = self._imu.data.ang_acc_b
+        altitude = self._height_scanner.data.pos_w[..., -1] - self._height_scanner.data.ray_hits_w[:, 60, -1] - 2.03/2
+        pos = self._robot.data.root_pos_w
+        pos[:,2] = altitude
         lin_vel = self._imu.data.lin_vel_b
-        ang_vel = self._imu.data.ang_vel_b
-        contact = self._contact_forces.data.net_forces_w.squeeze(1)
+        
+        
+        # lin_acc = self._imu.data.lin_acc_b
+        # ang_acc = self._imu.data.ang_acc_b
+        
+        # ang_vel = self._imu.data.ang_vel_b
+        # contact = self._contact_forces.data.net_forces_w.squeeze(1)
 
         # print(f"camera_data: {camera_data.shape}")
         obs = torch.cat(
             [
                 # camera_data.view(4, -1),       # [n, 30000]
-                height_data.view(self.num_envs, -1),       # [n, 1]
-                lin_acc.view(self.num_envs, -1),           # [n, 3]
+                pos.view(self.num_envs, -1),       # [n, 3]
+                # lin_acc.view(self.num_envs, -1),           # [n, 3]
                 # ang_acc.view(4, -1),           # [n, 3]
                 lin_vel.view(self.num_envs, -1),           # [n, 3]
                 # ang_vel.view(4, -1),           # [n, 3]
-                contact.view(self.num_envs, -1),           # [4, 3]  ← squeeze out the 2nd dim
+                # contact.view(self.num_envs, -1),           # [4, 3]  ← squeeze out the 2nd dim
             ],
             dim=1
         )
+
+        reward = self._get_rewards()
 
         landed, time_out = self._get_dones()
         # elementwise OR: if either landed or time_out is True
         is_last = landed | time_out   # torch.Size([4])
         is_terminal = landed | time_out
+        is_first = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
             
-        dones = {"is_first": is_first, "is_last": is_last, "is_terminal": is_terminal}
-
-        # if not torch.isfinite(obs).all():
-        #     is_last = True
-        #     is_terminal = True
-        # print(f"Height : {height_data}\nAction: {self._actions}")
-        reward = self._get_rewards()
+        dones = {"is_first": is_first, "is_last": is_last, "is_terminal": is_terminal}     
         
-        observations = {"image": camera_data, "state": obs, "reward": reward}
+        observations = {"state": obs, "reward": reward}
         observations.update(dones)      
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
 
-        lin_acc = self._imu.data.lin_acc_b
-        ang_acc = self._imu.data.ang_acc_b
-        lin_vel = torch.linalg.norm(self._imu.data.lin_vel_b, dim=1)
-        ang_vel = self._imu.data.ang_vel_b 
-        contact_forces = self._contact_forces.data.net_forces_w_history.squeeze(2)  # Extract the z-component of the contact forces
-        contact = torch.all(contact_forces[...,2] > 0)
         altitude = self._height_scanner.data.pos_w[..., -1] - self._height_scanner.data.ray_hits_w[:, 60, -1] - 2.03/2
+        pos = self._robot.data.root_pos_w
+        pos[:,2] = altitude
+        lin_vel = self._imu.data.lin_vel_b
 
         self._mpower = (self._actions[:,4] != 0).to(dtype=torch.int, device=self.device)
         self._spower = (self._actions[:, :4] != 0).any(dim=1).to(dtype=torch.int, device=self.device)
     
+        reward = torch.zeros(self.num_envs, device=self.device)
+        # print(f" Altitude: {altitude}")
 
-        landed = (torch.all(altitude <= 0) and contact and
-            torch.all(lin_vel < self.cfg.vlim))  
+        alt_ok = altitude <= 0*torch.ones(self.num_envs, device=self.device)
+        vel_ok = (torch.norm(lin_vel, dim=1) < self.cfg.vlim)
+        pos_ok = (torch.norm(pos, dim=1) < self.cfg.rlim)
+        state_ok = torch.logical_and(pos_ok, vel_ok)
+        self._landed = torch.logical_and(alt_ok, state_ok)  
 
-        crashed = (torch.all(altitude <= 0) and contact and
-            torch.all(lin_vel > self.cfg.vlim)) 
+        thresh = (1.0 - torch.cos(torch.deg2rad(torch.tensor(15)))) / 2.0
+        xy_sq = self._robot.data.root_quat_w[...,1]**2 + self._robot.data.root_quat_w[...,2]**2
+        tilted = xy_sq > thresh
+
+        hard_landing = torch.logical_and(alt_ok, torch.logical_not(vel_ok)) 
+        self._crashed = torch.logical_or(hard_landing, tilted)
             
-        missed = (torch.all(altitude <= 0) and contact and
-            torch.all(lin_vel < self.cfg.vlim))
+        missed_state = torch.logical_and(torch.logical_not(pos_ok), vel_ok)
+        self._missed = torch.logical_and(alt_ok, missed_state)
 
-        if landed:
-            bonus = torch.tensor([100], device=self.device)
-            print("Landed!")
-        elif crashed:
-            bonus = torch.tensor([-100], device=self.device)
-            print("Crashed!")
-        elif missed:
-            bonus = torch.tensor([0], device=self.device)
-            print("Missed!")
-        else:
-            bonus = torch.tensor([0], device=self.device)
+        alpha = -10
+        beta = -10
+        gamma = -0.03
+        delta = -0.06
 
+        shaping = alpha * torch.norm(pos, dim=1) + beta * torch.norm(lin_vel, dim=1)# - 0 * np.linalg.norm(self._current_action - self._prev_action)**2
+
+        # reward = (shaping - self.cfg.prev_shaping) if self.cfg.prev_shaping is not None else torch.zeros(self.num_envs, device=self.device)
+
+        # print(f" pos_reward: {-alpha * torch.linalg.norm(pos, dim=1)}\n vel_reward: {- beta * torch.linalg.norm(lin_vel, dim=1)}\n mpower_penalty: {- delta * self._mpower}\n spower_penalty: {- gamma * self._spower}\n prev_shaping: {self.cfg.prev_shaping}")
+        if self.cfg.prev_shaping is not None:
+            reward = shaping - self.cfg.prev_shaping
+        self.cfg.prev_shaping = shaping
+
+        # print(f" reward: {reward}\n shaping: {shaping}")
+        # reward = shaping
+
+        reward += gamma * self._spower + delta * self._mpower
+
+        for i in range(self.num_envs):
+            if self._landed[i]:
+                reward[i] = 100
+                print(f" Env {i} Landed!")
+            elif self._crashed[i]:
+                reward[i] = -100
+                print(f" Env {i} Crashed!")
+            elif self._missed[i]:
+                reward[i] = 0
+                print(f" Env {i} Missed!")
         
-        rewards = {
-            "altitude": altitude * self.cfg.altitude_reward_scale,
-            "lin_vel": lin_vel * self.cfg.lin_vel_reward_scale + bonus,
-            "power": self._mpower * self.cfg.mpower_reward_scale + self._spower * self.cfg.spower_reward_scale,
-        }
-        reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
+        # reward *= (self.cfg.sim.dt / (1/120)) # dt/ reference dt (1/120 sec)
 
-        # # debug print 
-        # for i, x in enumerate([rewards["lin_vel"], rewards["altitude"], rewards["power"]]):
-        #     print(f"Item {i}: shape={getattr(x, 'shape', None)}, dtype={getattr(x, 'dtype', None)}, device={getattr(x, 'device', None)}")
+        rewards = {"reward": reward}
+
         # Logging
         for key, value in rewards.items():
             self._episode_sums[key] += value
@@ -334,30 +351,28 @@ class LanderEnv(DirectRLEnv):
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         self.time_out = self.episode_length_buf >= self.max_episode_length - 1
+
         lin_vel = self._imu.data.lin_vel_b
-        contact_forces = self._contact_forces.data.net_forces_w_history.squeeze(2)  # Extract the z-component of the contact forces
-        contact = torch.all(contact_forces[...,2] > 0, dim=1)
         altitude = self._height_scanner.data.pos_w[..., -1] - self._height_scanner.data.ray_hits_w[:, 60, -1] - 2.03/2
 
-        self.out_of_bounds_x = torch.logical_or(self._robot.data.root_pos_w[:,0] > 44, self._robot.data.root_pos_w[:,0] < -44)
-        self.out_of_bounds_y = torch.logical_or(self._robot.data.root_pos_w[:,1] > 44, self._robot.data.root_pos_w[:,1] < -44)
+        self.out_of_bounds_x = torch.logical_or(self._robot.data.root_pos_w[:,0] > 42, self._robot.data.root_pos_w[:,0] < -42)
+        self.out_of_bounds_y = torch.logical_or(self._robot.data.root_pos_w[:,1] > 42, self._robot.data.root_pos_w[:,1] < -42)
         self.out_of_bounds = torch.logical_or(self.out_of_bounds_x, self.out_of_bounds_y)
-        # if self.out_of_bounds[0] or self.out_of_bounds[1]:
-            # print("Out of bounds!")
+        for i in range(self.num_envs):
+            if self.out_of_bounds[i]:
+                print(f" Env {i} Out of Bounds!")
+    
+        self.terminated = torch.logical_or(self._crashed, self._missed)
+        self.terminated = torch.logical_or(self.terminated, self._landed)
+        self.terminated = torch.logical_or(self.terminated, self.out_of_bounds)
 
-        vel_ok = torch.linalg.norm(lin_vel, dim = 1) < self.cfg.vlim
-        self.landed = torch.logical_and(altitude < 2 , contact == True)
-        self.landed = altitude <= 2
-        # if self.landed[0] or self.landed[1]:
-            # print("Landed!")
-        self.terminated = torch.logical_or(self.landed, self.out_of_bounds)
-        # print(f"Altitude: {altitude}, Contact: {contact}, Vel: {vel_ok}")
-        # crashed  = altitude <= 0 & contact & torch.all(torch.linalg.norm(lin_vel) > self.cfg.vlim)
         return self.terminated, self.time_out
 
     def _reset_idx(self, env_ids: torch.Tensor | None):
         if env_ids is None or len(env_ids) == self.num_envs:
             env_ids = self._robot._ALL_INDICES
+        print(f"Resetting envs {env_ids}")
+
 
         # Logging
         final_distance_to_goal = torch.linalg.norm(
@@ -376,8 +391,9 @@ class LanderEnv(DirectRLEnv):
         extras["Metrics/final_distance_to_goal"] = final_distance_to_goal.item()
         self.extras["log"].update(extras)
 
-        self._robot.reset(env_ids)
-        self._imu.reset(env_ids)
+
+        self._robot.reset(env_ids) # necessary for isaaclab
+        self._imu.reset(env_ids) # necessary for isaaclab
         super()._reset_idx(env_ids)
         if len(env_ids) == self.num_envs:
             # Spread out the resets to avoid spikes in training when many environments reset at a similar time
@@ -392,9 +408,9 @@ class LanderEnv(DirectRLEnv):
         # joint_pos = self._robot.data.default_joint_pos[env_ids]
         # joint_vel = self._robot.data.default_joint_vel[env_ids]
         default_root_state = self._robot.data.default_root_state[env_ids]
-        default_root_state[:, :2] += torch.zeros_like(default_root_state[:, :2]).uniform_(-10.0, 10.0) # x and y position
-        default_root_state[:, 2] += torch.zeros_like(default_root_state[:, 2]).uniform_(0.0, 20.0) # z position
-        default_root_state[:, 7:9] += torch.zeros_like(default_root_state[:, 7:9]).uniform_(-10.0, 10.0) # x and y linear velocity
+        default_root_state[:, :2] += torch.zeros_like(default_root_state[:, :2]).uniform_(-20,20)#(-20.0, 20.0) # x and y position
+        default_root_state[:, 2] += torch.zeros_like(default_root_state[:, 2]).uniform_(60,80)#(0.0, 20.0) # z position
+        default_root_state[:, 7:9] += torch.zeros_like(default_root_state[:, 7:9]).uniform_(-5.0, 5.0) # x and y linear velocity
         default_root_state[:, 9] += torch.zeros_like(default_root_state[:, 9]).uniform_(-30.0, -20.0) # z linear velocity
         default_root_state[:, :3] += self._terrain.env_origins[env_ids]
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)

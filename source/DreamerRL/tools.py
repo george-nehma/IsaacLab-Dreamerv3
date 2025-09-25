@@ -153,9 +153,9 @@ def simulate(
         # reset envs if necessary
         if done.any():                                             # check if any env is done
             indices = [index for index, d in enumerate(done) if d]      # find indices of done envs
-            results = [envs[0].reset()]                # reset done envs
-            results = [r() for r in results]                            # call the reset functions
-            results = results[0]
+            r = envs[0].reset()               # reset done envs
+            results = r()                        # call the reset functions
+            # results = results[0]
             for index, result in zip(indices, results): # replacing obs with reset results
                 t = result.copy()
                 t = {k: convert(v) for k, v in t.items()}
@@ -168,7 +168,9 @@ def simulate(
                 obs[index] = result
         # step agents
         obs = {k: np.stack([o[k] for o in obs]) for k in obs[0] if "log_" not in k} # k are the keys of obs (obs is a list before this) (would be stacking the multiple obs if they existed)
-        action, agent_state = agent(obs, done, agent_state) # get the next action from the agent based on the current obs
+        # if torch.isnan(obs).any() or torch.isinf(obs).any():
+        #     print("Bad obs at step", step, obs)
+        action, agent_state = agent(obs, done, agent_state) # get the next action from the agent based on the current obs AND updating the agent
 
         # converting the action to a numpy array if it is a dict
         if isinstance(action, dict):
@@ -180,12 +182,9 @@ def simulate(
             action = np.array(action)
         assert len(action) == num_envs # check if action length matches envs length
         # step envs
-        # results = [e.step(a) for e, a in zip(envs, action)] # step each env with the corresponding action
-        results = [envs[0].step(action)]
-        results = [r() for r in results]
-        
+        r = envs[0].step(action)
+        results = r()
         if not isinstance(results[0][1], float) :
-            results = results[0]
             test = []
             for i in range(num_envs):
                 tuple_entry = []
@@ -218,30 +217,30 @@ def simulate(
             transition["discount"] = info.get("discount", np.array(1 - float(d)))
             add_to_cache(cache, env.id, transition)
 
-        # if done.any():
-        #     indices = [index for index, d in enumerate(done) if d]
-        #     # logging for done episode
-        #     for i in indices:
-        #         save_episodes(directory, {envs[i].id: cache[envs[i].id]})
-        #         length = len(cache[envs[i].id]["reward"]) - 1
-        #         score = float(np.array(cache[envs[i].id]["reward"]).sum())
-        #         # video = cache[envs[i].id]["image"]
-        #         # record logs given from environments
-        #         for key in list(cache[envs[i].id].keys()):
-        #             if "log_" in key:
-        #                 logger.scalar(
-        #                     key, float(np.array(cache[envs[i].id][key]).sum())
-        #                 )
-        #                 # log items won't be used later
-        #                 cache[envs[i].id].pop(key)
+        if done.any():
+            indices = [index for index, d in enumerate(done) if d]
+            # logging for done episode
+            for i in indices:
+                save_episodes(directory, {envs[0].id: cache[envs[0].id]})
+                length = len(cache[envs[0].id]["reward"]) - 1
+                score = float(np.array(cache[envs[0].id]["reward"]).sum())
+                # video = cache[envs[i].id]["image"]
+                # record logs given from environments
+                for key in list(cache[envs[0].id].keys()):
+                    if "log_" in key:
+                        logger.scalar(
+                            key, float(np.array(cache[envs[0].id][key]).sum())
+                        )
+                        # log items won't be used later
+                        cache[envs[0].id].pop(key)
 
-        #         if not is_eval:
-        #             step_in_dataset = erase_over_episodes(cache, limit)
-        #             logger.scalar(f"dataset_size", step_in_dataset)
-        #             logger.scalar(f"train_return", score)
-        #             logger.scalar(f"train_length", length)
-        #             logger.scalar(f"train_episodes", len(cache))
-        #             logger.write(step=logger.step)
+                if not is_eval:
+                    step_in_dataset = erase_over_episodes(cache, limit)
+                    logger.scalar(f"dataset_size", step_in_dataset)
+                    logger.scalar(f"train_return", score)
+                    logger.scalar(f"train_length", length)
+                    logger.scalar(f"train_episodes", len(cache))
+                    logger.write(step=logger.step)
         #         else:
         #             if not "eval_lengths" in locals():
         #                 eval_lengths = []

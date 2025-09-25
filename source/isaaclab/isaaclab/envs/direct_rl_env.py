@@ -291,8 +291,11 @@ class DirectRLEnv(gym.Env):
         if seed is not None:
             self.seed(seed)
 
-        # reset state of scene
-        indices = torch.arange(self.num_envs, dtype=torch.int64, device=self.device)
+        # reset state of scene (custom added)
+        if self._sim_step_counter == 0:
+            indices = torch.arange(self.num_envs, dtype=torch.int64, device=self.device)
+        else: 
+            indices = torch.nonzero(self.reset_buf, as_tuple=True)[0]
         self._reset_idx(indices)
 
         # update articulation kinematics
@@ -309,10 +312,7 @@ class DirectRLEnv(gym.Env):
         self.firsts = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.firsts[indices] = True
         # return observations
-        if self.spec.name == "Isaac-PlanetaryLander-Direct":
-            return self._get_observations(is_first=self.firsts), self.extras
-        else:
-            return self._get_observations(), self.extras
+        return self._get_observations(), self.extras
 
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         """Execute one time-step of the environment's dynamics.
@@ -341,10 +341,10 @@ class DirectRLEnv(gym.Env):
         self.firsts[:] = False
         if isinstance(action, np.ndarray):
             action = torch.from_numpy(action).to(device=self.device)
-        # action = action.to(self.device)
-        # add action noise
-        if self.cfg.action_noise_model:
-            action = self._action_noise_model(action)
+
+        # # add action noise
+        # if self.cfg.action_noise_model:
+        #     action = self._action_noise_model(action)
 
         # process actions
         self._pre_physics_step(action)
@@ -375,37 +375,42 @@ class DirectRLEnv(gym.Env):
         self.episode_length_buf += 1  # step in current episode (per env)
         self.common_step_counter += 1  # total step (common for all envs)
 
-        self.reset_terminated[:], self.reset_time_outs[:] = self._get_dones()
-        self.reset_buf = self.reset_terminated | self.reset_time_outs
-        self.reward_buf = self._get_rewards()
+        # self.reset_terminated[:], self.reset_time_outs[:] = self._get_dones()
+        # self.reset_buf = self.reset_terminated | self.reset_time_outs
+        # self.reward_buf = self._get_rewards()
 
-        # -- reset envs that terminated/timed-out and log the episode information
-        reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        if len(reset_env_ids) > 0:
-            self._reset_idx(reset_env_ids)
-            # if sensors are added to the scene, make sure we render to reflect changes in reset
-            if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
-                self.sim.render()
+        # update observations
+        self.obs_buf = self._get_observations()
+        self.reset_buf = self.obs_buf['is_last']
+        self.reward_buf = self.obs_buf['reward']
+
+        # -- reset envs that terminated/timed-out and log the episode information ---need to check ---
+        # reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        # if len(reset_env_ids) > 0:
+        #     self._reset_idx(reset_env_ids)
+        #     # update articulation kinematics
+        #     self.scene.write_data_to_sim()
+        #     self.sim.forward()
+        #     # if sensors are added to the scene, make sure we render to reflect changes in reset
+        if self.sim.has_rtx_sensors() and self.cfg.rerender_on_reset:
+            self.sim.render()
+        #     self.firsts[reset_env_ids] = True
 
         # post-step: step interval event
         if self.cfg.events:
             if "interval" in self.event_manager.available_modes:
                 self.event_manager.apply(mode="interval", dt=self.step_dt)
 
-        # update observations
-        if self.spec.name == "Isaac-PlanetaryLander-Direct":
-            self.obs_buf = self._get_observations(is_first=self.firsts)
-        else:
-            self.obs_buf = self._get_observations()
+        
         
 
         # add observation noise
         # note: we apply no noise to the state space (since it is used for critic networks)
-        if self.cfg.observation_noise_model:
-            self.obs_buf["policy"] = self._observation_noise_model(self.obs_buf["policy"])
+        # if self.cfg.observation_noise_model:
+        #     self.obs_buf["policy"] = self._observation_noise_model(self.obs_buf["policy"])
 
         # return observations, rewards, resets and extras
-        return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
+        return self.obs_buf, self.reward_buf, self.reset_buf, self.extras
 
     @staticmethod
     def seed(seed: int = -1) -> int:
