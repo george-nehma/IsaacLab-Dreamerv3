@@ -375,6 +375,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     r = test_env.reset()
     result = r()
     obs[0] = result
+    action_low = test_env.env.env.env.env.action_space.low[0]
+    action_high = test_env.env.env.env.env.action_space.high[0]
     timestep = 0
     agent_state = None
     state_hist = []
@@ -414,7 +416,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             done = np.array(done)
             reward_hist.append(reward[0])
             state_hist.append(obs[0]['state'])
-            control_hist.append(unnormalize(action[0]['action'][:5],np.array([0,0,0,0,0]), np.array([3000,3000,3000,3000,3000])))
+            
+            control_hist.append(unnormalize(action[0]['action'],action_low, action_high))
 
         if args_cli.video:
             timestep += 1
@@ -437,12 +440,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     timesteps = np.arange(state_traj.shape[0])
 
     # --- Plot State Trajectories ---
-    state_labels = ["x", "y", "z", "xdot", "ydot", "zdot"]
+    state_labels = ["x", "y", "z", "xdot", "ydot", "zdot", "contact"]
 
     plt.figure(figsize=(12, 8))
     for i in range(state_traj.shape[1]):
-        plt.plot(timesteps, state_traj[:, i], label=state_labels[i])
-    plt.xlabel("Timestep")
+        plt.plot(timesteps*dt, state_traj[:, i], label=state_labels[i])
+    plt.xlabel("Seconds")
     plt.ylabel("State Value")
     plt.title("State Trajectories")
     plt.legend()
@@ -454,8 +457,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     # --- Plot Reward History ---
 
     plt.figure(figsize=(12, 8))
-    plt.plot(timesteps, rewards, label="Total Reward")
-    plt.xlabel("Timestep")
+    plt.plot(timesteps*dt, rewards, label="Total Reward")
+    plt.xlabel("Seconds")
     plt.ylabel("Reward Value")
     plt.title("Reward History")
     plt.legend()
@@ -465,12 +468,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     plt.close()
 
     # --- Plot Control History ---
-    action_labels = ["x+", "x-", "y+", "y-", "z+"]
+    action_labels = ["x", "y", "z"]
 
     plt.figure(figsize=(12, 8))
     for i in range(actions.shape[1]):
-        plt.step(timesteps, actions[:, i], where='post', label=action_labels[i])
-    plt.xlabel("Timestep")
+        plt.step(timesteps*dt, actions[:, i], where='post', label=action_labels[i])
+    plt.xlabel("Seconds")
     plt.ylabel("Control Value")
     plt.title("Control History")
     plt.legend()
