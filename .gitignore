@@ -78,6 +78,7 @@ tests/
 /source/lander_assets/*.fbm
 /source/lander_assets/textures/
 /source/lander_assets/Textures/
+*.blend
 
 # Docker history
 .isaac-lab-docker-history
