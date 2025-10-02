@@ -28,26 +28,10 @@ LUNAR_LANDER_CFG = RigidObjectCfg(
             density=10.0,
             mass=500.0,
         ),
-        # collision_props=sim_utils.CollisionPropertiesCfg(
-        #     collision_enabled=True,
-        # ),
-        # articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-        #     enabled_self_collisions=True, solver_position_iteration_count=4, solver_velocity_iteration_count=0
-        # ),
-        
     ),
     debug_vis=True,
     init_state=RigidObjectCfg.InitialStateCfg(
         pos=(0.0, 0.0, 20.0), #joint_pos={".*joint": 0.0},
     ),
-    # actuators={
-    #     "pad_actuator": ImplicitActuatorCfg(
-    #         joint_names_expr=[".*joint"],
-    #         effort_limit_sim=400.0,
-    #         velocity_limit_sim=100.0,
-    #         stiffness=0.0,
-    #         damping=10.0,
-    #     ),
-    # },
 )
 """Configuration for a simple Lunar Lander robot."""
