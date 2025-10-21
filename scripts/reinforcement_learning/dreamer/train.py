@@ -197,7 +197,7 @@ class Dreamer(nn.Module):
         if not training:
             actor = self._task_behavior.actor(feat)
             action = actor.mode()
-        elif self._should_expl(self._step):
+        elif self._should_expl(self._step): 
             actor = self._expl_behavior.actor(feat)
             action = actor.sample()
         else:
@@ -373,6 +373,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     train_envs = [make_env(env_cfg, dreamer_cfg, "train", 0)]
 
+    # making place holder envs for dreamer 
+    import source.DreamerRL.envs.lander5 as lander
+    for i in range(1,dreamer_cfg.envs):
+        env = lander.LanderEnv("3dofT")
+        env = wrappers.NormalizeActions(env)
+        env = wrappers.TimeLimit(env, dreamer_cfg.time_limit)
+        env = wrappers.SelectAction(env, key="action")
+        env = wrappers.UUID(env)
+        train_envs.append(env)
+
+
     # train_envs = [make("train", i) for i in range(dreamer_cfg.envs)]
     # eval_envs = [make("eval", i) for i in range(dreamer_cfg.envs)]
     if dreamer_cfg.parallel:
@@ -491,16 +502,20 @@ if __name__ == "__main__":
 
     args, remaining = parser.parse_known_args()
     if args_cli.task.startswith('Isaac-PlanetaryLander-Direct-States-'):
-        configs = yaml.safe_load(
-            (pathlib.Path(__file__).resolve().parents[3] / "source" / "isaaclab_tasks" / "isaaclab_tasks" / "direct" / "lander" / "agents" / "dreamer_states_cfg.yaml").read_text()
-        )
-        configs["defaults"]["logdir"] = f"logs/IsaacLab/lander_states_direct/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        cfg_name = "dreamer_states_cfg.yaml"
+        exp_name = "lander_states_direct"
+    elif args_cli.task.startswith('Isaac-PlanetaryLander-Direct-6DOF-'):
+        cfg_name = "dreamer_6dof_cfg.yaml"
+        exp_name = "lander_6dof_direct"
     else:
-        configs = yaml.safe_load(
-            (pathlib.Path(__file__).resolve().parents[3] / "source" / "isaaclab_tasks" / "isaaclab_tasks" / "direct" / "lander" / "agents" / "dreamer_cfg.yaml").read_text()
-        )
-        configs["defaults"]["logdir"] = f"logs/IsaacLab/lander_direct/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        cfg_name = "dreamer_cfg.yaml"
+        exp_name = "lander_direct"
 
+    configs = yaml.safe_load(
+            (pathlib.Path(__file__).resolve().parents[3] / "source" / "isaaclab_tasks" / "isaaclab_tasks" / "direct" / "lander" / "agents" / cfg_name).read_text()
+        )
+    configs["defaults"]["logdir"] = f"logs/IsaacLab/{exp_name}/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # recursive update function                                 
     def recursive_update(base, update):
         for key, value in update.items():
             if isinstance(value, dict) and key in base:

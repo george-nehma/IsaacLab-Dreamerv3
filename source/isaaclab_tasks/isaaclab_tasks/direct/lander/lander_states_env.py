@@ -124,10 +124,11 @@ class LanderStatesEnvCfg(DirectRLEnvCfg):
         update_period=0.02,
         offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, -2.03/2)),
         ray_alignment="yaw",
-        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.0, 1.0]),
+        pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[0.1, 0.1]),
         debug_vis=True,
         mesh_prim_paths=["/World/ground"],
     )
+
     contact_sensor: ContactSensorCfg = ContactSensorCfg(
         prim_path="/World/envs/env_.*/Robot/MainBody", 
         update_period=0.0, 
@@ -156,17 +157,19 @@ class LanderStatesEnvCfg(DirectRLEnvCfg):
     mpower_reward_scale = -0.6
     spower_reward_scale = -0.3
     contact_reward_scale = 100.0
+    du_reward_scale = -0.05
     # ang_vel_reward_scale = -0.01
-    vlim = 0.8  # [m/s] linear velocity limit for landing
+    vlim = 0.3  # [m/s] linear velocity limit for landing
     rlim = 2
     prev_shaping = None
 
 
     # change viewer settings
     viewer = ViewerCfg(
-        eye=(20.0, 20.0, 50.0),
-        origin_type = "asset_name",
+        eye=(20.0, 20.0, 30.0),
+        origin_type = "asset_body",
         asset_name = "robot",
+        body_name = "MainBody",
         )
 
 class LanderStatesEnv(DirectRLEnv):
@@ -175,11 +178,12 @@ class LanderStatesEnv(DirectRLEnv):
     def __init__(self, cfg: LanderStatesEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        self.actionHigh = np.full(self.action_space.shape, 2000, dtype=np.float32) # max thrust of RCS thrusters [N] and moment 
-        self.actionLow = np.full(self.action_space.shape, -2000, dtype=np.float32) # min thrust of RCS thrusters [N] and moment
+        self.actionHigh = np.full(self.action_space.shape, 1000, dtype=np.float32) # max thrust of RCS thrusters [N] and moment 
+        self.actionLow = np.full(self.action_space.shape, -1000, dtype=np.float32) # min thrust of RCS thrusters [N] and moment
         self.actionLow[:,-1] = 0.0
         self.actionHigh[:,-1] = 4000.0
         self.action_space = gym.spaces.Box(dtype=np.float32, shape=self.actionHigh.shape ,low=self.actionLow, high=self.actionHigh)
+        self.prev_action = torch.zeros(self.action_space.shape, device=self.device)
 
         # Total thrust and moment applied to the CoG of the lander
         self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
@@ -250,27 +254,27 @@ class LanderStatesEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         
         ray_hits_w = self._height_scanner.data.ray_hits_w  # shape (num_envs, 121, 3)
-        num_envs = ray_hits_w.shape[0]
-        idx = 60
+        # num_envs = ray_hits_w.shape[0]
+        # idx = 60
 
         # Extract z component at desired index
-        z_values = ray_hits_w[:, idx, -1]  # shape (num_envs,)
+        z_values = ray_hits_w.mean(dim=1)  # shape (num_envs,)
 
         # Find which ones are inf
-        mask_inf = torch.isinf(z_values)
+        # mask_inf = torch.isinf(z_values)
 
-        if mask_inf.any():
-            idx_inf = torch.nonzero(mask_inf, as_tuple=True)[0]
-            print(f"broken array {ray_hits_w[idx_inf,idx,:]}")# For each env where z is inf, find closest non-inf along the ray
-            non_inf_mask = ~torch.isinf(ray_hits_w[:, :, -1])  # shape (num_envs, 121)
-            non_inf_indices = torch.arange(ray_hits_w.shape[1], device=ray_hits_w.device)  # 0..120
+        # if mask_inf.any():
+        #     idx_inf = torch.nonzero(mask_inf, as_tuple=True)[0]
+        #     print(f"broken array {ray_hits_w[idx_inf,:,:]}")# For each env where z is inf, find closest non-inf along the ray
+        #     non_inf_mask = ~torch.isinf(ray_hits_w[:, :, -1])  # shape (num_envs, 121)
+        #     non_inf_indices = torch.arange(ray_hits_w.shape[1], device=ray_hits_w.device)  # 0..120
 
-            for i in torch.nonzero(mask_inf).squeeze():
-                valid_indices = non_inf_indices[non_inf_mask[i]]
-                closest_idx = valid_indices[(valid_indices - idx).abs().argmin()]
-                z_values[i] = ray_hits_w[i, closest_idx, -1]
+        #     for i in torch.nonzero(mask_inf).squeeze():
+        #         valid_indices = non_inf_indices[non_inf_mask[i]]
+        #         closest_idx = valid_indices[(valid_indices - idx).abs().argmin()]
+        #         z_values[i] = ray_hits_w[i, closest_idx, -1]
 
-        self._altitude = self._height_scanner.data.pos_w[..., -1] - z_values - 2.03/2  # for the convex hull
+        self._altitude = self._height_scanner.data.pos_w[..., -1] - z_values[:,-1] - 2.03/2  # for the convex hull
         self._pos = self._robot.data.root_pos_w
         self._pos[:,2] = self._altitude
         self._lin_vel = self._imu.data.lin_vel_b
@@ -349,28 +353,43 @@ class LanderStatesEnv(DirectRLEnv):
             reward = shaping - self.cfg.prev_shaping
         self.cfg.prev_shaping = shaping
 
-        reward += self.cfg.spower_reward_scale * self._spower + self.cfg.mpower_reward_scale * self._mpower
+        reward += self.cfg.spower_reward_scale * self._spower + self.cfg.mpower_reward_scale * self._mpower 
+
+        reward += 100 * torch.where(self._lin_vel[:,2] > 0, -torch.ones_like(self._lin_vel[:,2]), torch.zeros_like(self._lin_vel[:,2]))
 
         mask_contact = (~self._crashed) & (contact > 0.5)
         reward[mask_contact] += self.cfg.contact_reward_scale * contact[mask_contact]
 
+        du = torch.norm(self._actions - self.prev_action, dim=1)
+        reward += self.cfg.du_reward_scale * du
+        self.prev_action = self._actions.clone()
+
         reward[self._landed] = 3000
-        reward[self._crashed] = -3000
+        reward[self._crashed] = -4000
         reward[self._missed] = 0
 
         for i in range(self.num_envs):
             # if mask_contact[i]:
             #     print(f"Env {i} Contact with Position {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}, Velocity {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f} at time {self.episode_length_buf[i]*self.sim.cfg.dt:.2f}s")
             if self._hovering[i]:
-                reward[i] -= 0.1*torch.norm(self._actions[i,:])
+                reward[i] -= 1*torch.norm(self._actions[i,:])
             #     print(f"Env {i} Hovering with Position {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}, Velocity {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f} at time {self.episode_length_buf[i]*self.sim.cfg.dt:.2f}s")
             if self._landed[i]:
-                print(f"Env {i} Landed with Position {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}, Velocity {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f} at time {self.episode_length_buf[i]*self.sim.cfg.dt:.2f}s")
+                print(f"""Env {i} Crashed with:
+                    Position          {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
+                    Velocity          {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
+                    at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
             elif self._crashed[i]:
-                print(f"Env {i} Crashed with Position {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}, Velocity {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f} at time {self.episode_length_buf[i]*self.sim.cfg.dt:.2f}s")
+                print(f"""Env {i} Crashed with:
+                    Position          {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
+                    Velocity          {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
+                    at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
             elif self._missed[i]:
-                print(f"Env {i} Missed with Position {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}, Velocity {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f} at time {self.episode_length_buf[i]*self.sim.cfg.dt:.2f}s")
-
+                print(f"""Env {i} Crashed with:
+                    Position          {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
+                    Velocity          {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
+                    at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
+                
         rewards = {"reward": reward}
 
         # Logging

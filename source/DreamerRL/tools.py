@@ -7,6 +7,7 @@ import pathlib
 import re
 import time
 import random
+import uuid
 
 import numpy as np
 
@@ -153,8 +154,23 @@ def simulate(
         # reset envs if necessary
         if done.any():                                             # check if any env is done
             indices = [index for index, d in enumerate(done) if d]      # find indices of done envs
+            old_env_ids = [envs[i]._env.id for i in range(num_envs)]  # store old env ids
             r = envs[0].reset()               # reset done envs
             results = r()                        # call the reset functions
+
+            # only for dummy envs
+            for i, idx in enumerate(indices):
+                if idx != 0:
+                    timestamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+                    envs[idx]._env.id = f"{timestamp}-{str(uuid.uuid4().hex)}"
+            if len(indices) < num_envs:
+                others = [i for i in range(4) if i not in indices]
+                for i in others:
+                    envs[i]._env.id = old_env_ids[i]
+            # [envs[i]._env.reset() for i, flag in enumerate(indices) if flag != 0]
+
+
+
             # results = results[0]
             for index, result in zip(indices, results): # replacing obs with reset results
                 t = result.copy()
@@ -163,7 +179,7 @@ def simulate(
                 t["reward"] = 0.0
                 t["discount"] = 1.0
                 # initial state should be added to cache
-                # add_to_cache(cache, envs[index].id, t)
+                add_to_cache(cache, envs[index].id, t)
                 # replace obs with done by initial state
                 obs[index] = result
         # step agents
@@ -221,18 +237,18 @@ def simulate(
             indices = [index for index, d in enumerate(done) if d]
             # logging for done episode
             for i in indices:
-                save_episodes(directory, {envs[0].id: cache[envs[0].id]})
-                length = len(cache[envs[0].id]["reward"]) - 1
-                score = float(np.array(cache[envs[0].id]["reward"]).sum())
+                save_episodes(directory, {envs[i].id: cache[envs[i].id]})
+                length = len(cache[envs[i].id]["reward"]) - 1
+                score = float(np.array(cache[envs[i].id]["reward"]).sum())
                 # video = cache[envs[i].id]["image"]
                 # record logs given from environments
-                for key in list(cache[envs[0].id].keys()):
+                for key in list(cache[envs[i].id].keys()):
                     if "log_" in key:
                         logger.scalar(
-                            key, float(np.array(cache[envs[0].id][key]).sum())
+                            key, float(np.array(cache[envs[i].id][key]).sum())
                         )
                         # log items won't be used later
-                        cache[envs[0].id].pop(key)
+                        cache[envs[i].id].pop(key)
 
                 if not is_eval:
                     step_in_dataset = erase_over_episodes(cache, limit)
@@ -240,6 +256,7 @@ def simulate(
                     logger.scalar(f"train_return", score)
                     logger.scalar(f"train_length", length)
                     logger.scalar(f"train_episodes", len(cache))
+                    logger.scalar(f"envs_finished", int(''.join(map(str, indices))))
                     logger.write(step=logger.step)
         #         else:
         #             if not "eval_lengths" in locals():
