@@ -1,0 +1,18 @@
+{
+  "name": "MyDevContainer",
+  "image": "isaac-lab-dreamer:latest",
+  "workspaceFolder": "/workspace",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+  ],
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash",
+    "editor.formatOnSave": true
+  },
+  "extensions": [
+    "ms-python.python",
+    "ms-vscode.cpptools",
+    "ms-azuretools.vscode-docker"
+  ],
+  "postCreateCommand": "echo 'Container setup complete!'"
+}
