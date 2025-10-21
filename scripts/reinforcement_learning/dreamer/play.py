@@ -289,6 +289,153 @@ def make_env(env_cfg, config, mode, id):
     env = wrappers.UUID(env)
     return env
 
+import matplotlib.pyplot as plt
+import numpy as np
+
+def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="traj"):
+    """
+    Plots state trajectories, control actions, rewards, and contact over time.
+
+    Args:
+        states (ndarray): (n,7) or (n,14). Order:
+                          (7)  = [x, y, z, vx, vy, vz, contact]
+                          (14) = [qw, qx, qy, qz, x, y, z, vx, vy, vz, wx, wy, wz, contact]
+        actions (ndarray): (n,3) or (n,6).
+        rewards (ndarray): (n,).
+        dt (float): timestep size.
+        save_prefix (str): prefix for saved figures.
+    """
+    n, sdim_old = states.shape
+    
+    if sdim_old == 8 or sdim_old == 14:
+        w = states[:, 0]
+        x = states[:, 1]
+        y = states[:, 2]
+        z = states[:, 3]
+        # Roll (x-axis rotation)
+        t0 = 2.0 * (w * x + y * z)
+        t1 = 1.0 - 2.0 * (x * x + y * y)
+        roll = np.arctan2(t0, t1)
+
+        # Pitch (y-axis rotation)
+        t2 = 2.0 * (w * y - z * x)
+        t2 = np.clip(t2, -1.0, 1.0) # Clamp t2 to avoid invalid arcsin input
+        pitch = np.arcsin(t2)
+
+        # Yaw (z-axis rotation)
+        t3 = 2.0 * (w * z + x * y)
+        t4 = 1.0 - 2.0 * (y * y + z * z)
+        yaw = np.arctan2(t3, t4)
+
+        euler_angles = np.stack([roll*180/np.pi, pitch*180/np.pi, yaw*180/np.pi], axis=1)
+        states = np.concatenate((euler_angles, states[:, 4:]), axis=1) if (states.shape[1] == 14 or states.shape[1] == 8) else states
+        states[:,-3:] = states[:,-3:]*180/np.pi # convert angular velocity to deg/s
+
+        timesteps = np.arange(states.shape[0]) * dt
+        n, sdim = states.shape
+        _, adim = actions.shape
+
+    # --- State labels ---
+    if sdim_old == 7:
+        state_labels = ["x [m]", "y [m]", "z [m]", "vx [m/s]", "vy [m/s]", "vz [m/s]", "contact"]
+        action_labels = ["Fx [N]", "Fy [N]", "Fz [N]"]
+        plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]"]
+    
+    elif sdim == 14:
+        state_labels = ["qw", "qx", "qy", "qz",
+                        "x [m]", "y [m]", "z [m]",
+                        "vx [m/s]", "vy [m/s]", "vz [m/s]",
+                        "wx [deg/s]", "wy [deg/s]", "wz [deg/s]",
+                        "contact"]
+        action_labels = [ "Fx [N]", "Fy [N]", "Fz [N]", "Mx [Nm]", "My [Nm]", "Mz [Nm]"]
+        plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]", "Fx + Mx [N/Nm]", " Fx + My [N/Nm]", "Mz [Nm]"]
+        
+    elif sdim == 13:
+        state_labels = ["roll [deg]", "pitch [deg]", "yaw [deg]",
+                        "x [m]", "y [m]", "z [m]",
+                        "vx [m/s]", "vy [m/s]", "vz [m/s]",
+                        "wx [deg/s]", "wy [deg/s]", "wz [deg/s]",
+                        "contact"]
+        action_labels = [ "Fx [N]", "Fy [N]", "Fz [N]", "Mx [Nm]", "My [Nm]", "Mz [Nm]"]
+        plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]", "Fx + Mx [N/Nm]", " Fx + My [N/Nm]", "Mz [Nm]"]
+
+    elif sdim_old == 8:
+        state_labels = ["roll [deg]", "pitch [deg]", "yaw [deg]",
+                        "wx [deg/s]", "wy [deg/s]", "wz [deg/s]",
+                        "contact"]
+        action_labels = ["Mx [Nm]", "My [Nm]", "Mz [Nm]"]
+        plot_titles = ["Mx [Nm]", "My [Nm]", "Mz [Nm]"]
+
+    else:
+        raise ValueError("States must be (n,7), (n,8) or (n,14).")
+
+    
+
+    # --- Plot all states dynamically ---
+    nrows = int(np.ceil(sdim / 2))
+    fig1, axes1 = plt.subplots(nrows, 2, figsize=(12, 2*nrows), sharex=True)
+    axes1 = axes1.flatten()
+
+    for i in range(sdim):
+        axes1[i].plot(timesteps, states[:, i], label=state_labels[i])
+        axes1[i].set_title(state_labels[i])
+        axes1[i].grid(True)
+        axes1[i].legend(loc="upper right")
+
+    # Hide unused subplots
+    for j in range(sdim, len(axes1)):
+        fig1.delaxes(axes1[j])
+
+    axes1[-2].set_xlabel("Seconds")
+    axes1[-1].set_xlabel("Seconds")
+
+    fig1.suptitle("State Trajectories", fontsize=14)
+    fig1.tight_layout(rect=[0, 0, 1, 0.97])
+    fig1.savefig(f"{save_prefix}_states.png", dpi=300)
+    plt.close(fig1)
+
+    # --- Controls + Reward + Contact ---
+    fig2, axes2 = plt.subplots(3, 2, figsize=(12, 10), sharex=True)
+
+    for i in range(adim):
+        if i == 5:
+            axes2[i % 3, 1].step(timesteps, actions[:, i], 
+                                where="post", label=action_labels[i], color="orange")
+            axes2[i % 3, 1].set_title(plot_titles[i])
+            axes2[i % 3, 1].grid(True)
+            axes2[i % 3, 1].legend(loc="upper right")
+        else:
+            axes2[i % 3, 0].step(timesteps, actions[:, i], 
+                                where="post", label=action_labels[i])
+            axes2[i % 3, 0].set_title(plot_titles[i])
+            axes2[i % 3, 0].grid(True)
+            axes2[i % 3, 0].legend(loc="upper right")
+
+    # Reward
+    axes2[0, 1].plot(timesteps, rewards, label="Reward", color="purple")
+    axes2[0, 1].set_title("Reward")
+    axes2[0, 1].grid(True)
+    axes2[0, 1].legend(loc="upper right")
+
+    # Contact (always last state)
+    axes2[1, 1].step(timesteps, states[:, -1], where="post", 
+                     label="Contact", color="red")
+    axes2[1, 1].set_title("Contact")
+    axes2[1, 1].grid(True)
+    axes2[1, 1].legend(loc="upper right")
+
+    # Remove unused last subplot
+    if adim == 3:
+        fig2.delaxes(axes2[2, 1])
+
+    axes2[2, 0].set_xlabel("Seconds")
+    axes2[1, 1].set_xlabel("Seconds")
+    fig2.suptitle("Controls, Reward, and Contact", fontsize=14)
+    fig2.tight_layout(rect=[0, 0, 1, 0.96])
+    fig2.savefig(f"{save_prefix}_controls.png", dpi=300)
+    plt.close(fig2)
+
+
 
 
 @hydra_task_config(args_cli.task, agent_cfg_entry_point)
@@ -439,51 +586,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 
     timesteps = np.arange(state_traj.shape[0])
 
-    # --- Plot State Trajectories ---
-    state_labels = ["x", "y", "z", "xdot", "ydot", "zdot", "contact"]
-
-    plt.figure(figsize=(12, 8))
-    for i in range(state_traj.shape[1]):
-        plt.plot(timesteps*dt, state_traj[:, i], label=state_labels[i])
-    plt.xlabel("Seconds")
-    plt.ylabel("State Value")
-    plt.title("State Trajectories")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig("state_trajectories.png", dpi=300)
-    plt.close()
-
-    # --- Plot Reward History ---
-
-    plt.figure(figsize=(12, 8))
-    plt.plot(timesteps*dt, rewards, label="Total Reward")
-    plt.xlabel("Seconds")
-    plt.ylabel("Reward Value")
-    plt.title("Reward History")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig("reward_history.png", dpi=300)
-    plt.close()
-
-    # --- Plot Control History ---
-    action_labels = ["x", "y", "z"]
-
-    plt.figure(figsize=(12, 8))
-    for i in range(actions.shape[1]):
-        plt.step(timesteps*dt, actions[:, i], where='post', label=action_labels[i])
-    plt.xlabel("Seconds")
-    plt.ylabel("Control Value")
-    plt.title("Control History")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig("control_history.png", dpi=300)
-    plt.close()
-
-
-
+    plot_trajectory(state_traj, actions, rewards, timesteps, dt=dt, save_prefix="traj")
+ 
     # close the simulator
     test_env.close()
 
@@ -492,7 +596,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 if __name__ == "__main__":
     # run the main function
     # specify directory for logging experiments (load checkpoint)
-    log_root_path = os.path.join("logs", "IsaacLab", "lander_states_direct")
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--configs", nargs="+")
+
+    args, remaining = parser.parse_known_args()
+    if args_cli.task.startswith('Isaac-PlanetaryLander-Direct-States-'):
+        task = "lander_states_direct"
+    elif args_cli.task.startswith('Isaac-PlanetaryLander-Direct-6DOF-'):
+        task = "lander_6dof_direct"
+    log_root_path = os.path.join("logs", "IsaacLab", task)
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
     # get checkpoint path

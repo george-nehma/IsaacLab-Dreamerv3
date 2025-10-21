@@ -40,6 +40,8 @@ class NormalizeActions(gym.Wrapper):
 
     def step(self, action):
         original = (action + 1) / 2 * (self._high - self._low) + self._low
+        # Set elements of original to 0 where they are equal to self._low
+        # original = np.where(original == self._low, 0, original)
         original = np.where(self._mask, original, action)
         return self.env.step(original)
 
