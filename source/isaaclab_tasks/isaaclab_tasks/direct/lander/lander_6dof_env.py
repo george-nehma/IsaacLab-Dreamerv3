@@ -472,8 +472,9 @@ class Lander6DOFEnv(DirectRLEnv):
         # reward += self.cfg.du_reward_scale * du
 
         # reward = 2*torch.exp(-alignment/(0.04*2*torch.pi)) - 0.3*norm_actions - 0.3*du
-        reward = -alignment - 0.03*norm_actions - 0.03*du - 0.01*torch.norm(self._ang_vel, dim=1)
+        reward = -alignment - 0.3*norm_actions - 0.3*du - 0.01*torch.norm(self._ang_vel, dim=1)
         reward[(self._quat[:,0] > self._quat_prev[:,0])] -= 1
+        # print(f"change in angle: {self._quat[:,0] - self._quat_prev[:,0][0]:.4f}")
         self._quat_prev = self._quat.clone()
         # reward += 100 * torch.where(self._lin_vel[:,2] > 0, -torch.ones_like(self._lin_vel[:,2]), torch.zeros_like(self._lin_vel[:,2])) # penalty for positive z velocity
 
