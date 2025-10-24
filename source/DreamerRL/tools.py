@@ -256,7 +256,8 @@ def simulate(
                     logger.scalar(f"train_return", score)
                     logger.scalar(f"train_length", length)
                     logger.scalar(f"train_episodes", len(cache))
-                    logger.scalar(f"envs_finished", int(''.join(map(str, indices))))
+                    print_idx = [item + 1 for item in indices]
+                    logger.scalar(f"envs_finished", int(''.join(map(str, print_idx))))
                     logger.write(step=logger.step)
         #         else:
         #             if not "eval_lengths" in locals():

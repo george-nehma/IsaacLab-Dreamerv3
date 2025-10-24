@@ -340,8 +340,10 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
         state_labels = ["x [m]", "y [m]", "z [m]", "vx [m/s]", "vy [m/s]", "vz [m/s]", "contact"]
         action_labels = ["Fx [N]", "Fy [N]", "Fz [N]"]
         plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]"]
+        sdim = sdim_old
+        _, adim = actions.shape
     
-    elif sdim == 14:
+    elif sdim_old == 14:
         state_labels = ["qw", "qx", "qy", "qz",
                         "x [m]", "y [m]", "z [m]",
                         "vx [m/s]", "vy [m/s]", "vz [m/s]",
@@ -349,6 +351,8 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
                         "contact"]
         action_labels = [ "Fx [N]", "Fy [N]", "Fz [N]", "Mx [Nm]", "My [Nm]", "Mz [Nm]"]
         plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]", "Fx + Mx [N/Nm]", " Fx + My [N/Nm]", "Mz [Nm]"]
+        sdim = sdim_old
+        _, adim = actions.shape
         
     elif sdim == 13:
         state_labels = ["roll [deg]", "pitch [deg]", "yaw [deg]",
