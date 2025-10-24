@@ -220,6 +220,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # close the simulator
     env.close()
 
+    import psutil
+
+    # After env.close()
+    parent = psutil.Process(os.getpid())
+    children = parent.children(recursive=True)
+    print(f"[DEBUG] Active child processes after env.close(): {len(children)}")
+    for c in children:
+        print(f" - PID={c.pid}, name={c.name()}, status={c.status()}")
+
+    print("test")
+
 
 if __name__ == "__main__":
     # run the main function
