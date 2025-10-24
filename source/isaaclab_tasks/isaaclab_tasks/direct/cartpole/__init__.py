@@ -25,6 +25,7 @@ gym.register(
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:CartpolePPORunnerCfg",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_ppo_cfg.yaml",
         "sb3_cfg_entry_point": f"{agents.__name__}:sb3_ppo_cfg.yaml",
+        "dreamer_cfg_entry_point": f"{agents.__name__}:dreamer_cfg.yaml",
     },
 )
 
@@ -36,6 +37,7 @@ gym.register(
         "env_cfg_entry_point": f"{__name__}.cartpole_camera_env:CartpoleRGBCameraEnvCfg",
         "rl_games_cfg_entry_point": f"{agents.__name__}:rl_games_camera_ppo_cfg.yaml",
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_camera_ppo_cfg.yaml",
+        "dreamer_cfg_entry_point": f"{agents.__name__}:dreamer_camera_cfg.yaml",
     },
 )
 

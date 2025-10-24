@@ -7,11 +7,11 @@ defaults:
   offline_evaldir: ''
   seed: 0
   deterministic_run: False
-  steps: 1.8e5
+  steps: 2e4
   parallel: False
-  eval_every: 5e4
+  eval_every: 1e4
   eval_episode_num: 10
-  log_every: 5e3
+  log_every: 1e3
   reset_every: 0
   device: 'cuda:0'
   compile: True
@@ -20,13 +20,13 @@ defaults:
   video_pred_log: False
 
   # Environment
-  task: 'Isaac-PlanetaryLander-Direct-States-v0'
+  task: 'Isaac-Cartpole-Direct-v0'
   obs_keys: ['state','reward', is_first','is_last','is_terminal']
   size: [64, 64]
   action_repeat: 2
   time_limit: 5000 # train_length = time_limit/action_repeat
   grayscale: False
-  prefill: 10000
+  prefill: 2000
   reward_EMA: True
 
   # Model
@@ -93,8 +93,3 @@ defaults:
   disag_layers: 4
   disag_units: 400
   disag_action_cond: False
-
-lander:
-  train_ratio: 256
-  envs: 4
-
