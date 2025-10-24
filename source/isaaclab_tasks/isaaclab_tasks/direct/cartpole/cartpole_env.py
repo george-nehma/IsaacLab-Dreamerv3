@@ -131,7 +131,6 @@ class CartpoleEnv(DirectRLEnv):
             self.joint_vel[:, self._cart_dof_idx[0]],
             self.reset_terminated,
         )
-
         return total_reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
