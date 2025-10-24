@@ -548,7 +548,7 @@ class Lander6DOFEnv(DirectRLEnv):
         self.omega = torch.norm(self._ang_vel, dim=1)
         # reward += self.cfg.du_reward_scale * du
 
-        reward = 2*torch.exp(-self.alignment/(0.04*2*torch.pi)) - 0.3*norm_actions # - 0.3*du
+        reward = 2*torch.exp(-self.alignment/(0.04*2*torch.pi)) - 0.3*norm_actions - 0.3*du
         # reward = -self.alignment - 0.01*omega - 0.03*norm_actions # - 0.003*du**2
         reward[(self._quat[:,0] > self._quat_prev[:,0])] -= 1
         # print(f"change in angle: {self._quat[:,0] - self._quat_prev[:,0][0]:.4f}")
@@ -735,7 +735,7 @@ class Lander6DOFEnv(DirectRLEnv):
         # self.terminated = torch.logical_or(self.terminated, self._landed)
 
         self.terminated = self.aligned_history.all(dim=1)
-        self.terminated = torch.logical_or(self.terminated, (self.omega > np.deg2rad(25)))
+        # self.terminated = torch.logical_or(self.terminated, (self.omega > np.deg2rad(25)))
 
         # if self.terminated.sum() < 8 and self.terminated.sum() >= 1:
         #     print("stop")
