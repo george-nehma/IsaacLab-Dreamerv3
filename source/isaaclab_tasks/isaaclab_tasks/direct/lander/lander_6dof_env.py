@@ -375,10 +375,10 @@ class Lander6DOFEnv(DirectRLEnv):
 
         reward = self._get_rewards()
 
-        landed, time_out = self._get_dones()
+        ended, time_out = self._get_dones()
         # elementwise OR: if either landed or time_out is True
-        is_last = landed | time_out   # torch.Size([4])
-        is_terminal = landed | time_out
+        is_last = time_out   # torch.Size([4])
+        is_terminal = ended
         is_first = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
             
         dones = {"is_first": is_first, "is_last": is_last, "is_terminal": is_terminal}     

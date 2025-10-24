@@ -506,12 +506,18 @@ if __name__ == "__main__":
     elif args_cli.task.startswith('Isaac-PlanetaryLander-Direct-6DOF-'):
         cfg_name = "dreamer_6dof_cfg.yaml"
         exp_name = "lander_6dof_direct"
+    elif args_cli.task.startswith('Isaac-Cartpole-RGB-Camera-Direct-'):
+        cfg_name = "dreamer_camera_cfg.yaml"
+        exp_name = "cartpole_camera_direct"
+    elif args_cli.task.startswith('Isaac-Cartpole-Direct-'):
+        cfg_name = "dreamer_cfg.yaml"
+        exp_name = "cartpole_direct"
     else:
         cfg_name = "dreamer_cfg.yaml"
         exp_name = "lander_direct"
 
     configs = yaml.safe_load(
-            (pathlib.Path(__file__).resolve().parents[3] / "source" / "isaaclab_tasks" / "isaaclab_tasks" / "direct" / "lander" / "agents" / cfg_name).read_text()
+            (pathlib.Path(__file__).resolve().parents[3] / "source" / "isaaclab_tasks" / "isaaclab_tasks" / "direct" / exp_name.split('_', 1)[0] / "agents" / cfg_name).read_text()
         )
     configs["defaults"]["logdir"] = f"logs/IsaacLab/{exp_name}/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     # recursive update function                                 

@@ -381,7 +381,7 @@ class DirectRLEnv(gym.Env):
 
         # update observations
         self.obs_buf = self._get_observations()
-        self.reset_buf = self.obs_buf['is_last']
+        self.reset_buf = self.obs_buf['is_last'] | self.obs_buf['is_terminal']
         self.reward_buf = self.obs_buf['reward']
 
         # -- reset envs that terminated/timed-out and log the episode information ---need to check ---
