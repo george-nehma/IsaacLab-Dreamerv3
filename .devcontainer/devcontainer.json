@@ -1,6 +1,6 @@
 {
   "name": "MyDevContainer",
-  "image": "isaac-lab-dreamer:latest",
+  "image": "georgenehma/isaac-lab-dreamer:latest",
   "workspaceFolder": "/workspace",
   "mounts": [
     "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"

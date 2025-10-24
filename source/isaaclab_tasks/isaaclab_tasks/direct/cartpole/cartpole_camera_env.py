@@ -27,6 +27,8 @@ class CartpoleRGBCameraEnvCfg(DirectRLEnvCfg):
     decimation = 2
     episode_length_s = 5.0
     action_scale = 100.0  # [N]
+    pix_x = 128
+    pix_y = 128
 
     # simulation
     sim: SimulationCfg = SimulationCfg(dt=1 / 120, render_interval=decimation)
@@ -44,10 +46,10 @@ class CartpoleRGBCameraEnvCfg(DirectRLEnvCfg):
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 20.0)
         ),
-        width=100,
-        height=100,
+        width=pix_x,
+        height=pix_y,
     )
-    write_image_to_file = False
+    write_image_to_file = True
 
     # spaces
     action_space = 1
@@ -144,17 +146,27 @@ class CartpoleCameraEnv(DirectRLEnv):
         data_type = "rgb" if "rgb" in self.cfg.tiled_camera.data_types else "depth"
         if "rgb" in self.cfg.tiled_camera.data_types:
             camera_data = self._tiled_camera.data.output[data_type] / 255.0
+            if self.cfg.write_image_to_file:
+                save_images_to_file(camera_data, f"cartpole_{data_type}.png")
             # normalize the camera data for better training results
             mean_tensor = torch.mean(camera_data, dim=(1, 2), keepdim=True)
             camera_data -= mean_tensor
         elif "depth" in self.cfg.tiled_camera.data_types:
             camera_data = self._tiled_camera.data.output[data_type]
             camera_data[camera_data == float("inf")] = 0
-        observations = {"policy": camera_data.clone()}
+        
 
-        if self.cfg.write_image_to_file:
-            save_images_to_file(observations["policy"], f"cartpole_{data_type}.png")
+        reward = self._get_rewards()
 
+        ended, time_out = self._get_dones()
+
+        is_last = time_out
+        is_terminal = ended
+        is_first = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        dones = {"is_first": is_first, "is_last": is_last, "is_terminal": is_terminal} 
+
+        observations = {"image": camera_data.clone(), "reward": reward}
+        observations.update(dones) 
         return observations
 
     def _get_rewards(self) -> torch.Tensor:

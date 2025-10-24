@@ -332,7 +332,9 @@ class LanderStatesEnv(DirectRLEnv):
         # --- Missed conditions ---
         self._missed = contact_landed & (~pos_ok) 
 
-        shaping = self.cfg.pos_reward_scale * torch.norm(self._pos, dim=1) + self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1)# - 0 * np.linalg.norm(self._current_action - self._prev_action)**2
+        pos_reward = self.cfg.pos_reward_scale * torch.norm(self._pos, dim=1)
+        vel_reward = self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1)
+        shaping = pos_reward + vel_reward # - 0 * np.linalg.norm(self._current_action - self._prev_action)**2
 
         if self.cfg.prev_shaping is not None:
             reward = shaping - self.cfg.prev_shaping

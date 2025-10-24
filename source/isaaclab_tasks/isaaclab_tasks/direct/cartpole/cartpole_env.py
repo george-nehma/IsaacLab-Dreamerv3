@@ -69,6 +69,10 @@ class CartpoleEnv(DirectRLEnv):
         self.joint_pos = self.cartpole.data.joint_pos
         self.joint_vel = self.cartpole.data.joint_vel
 
+    def close(self):
+        """Cleanup for the environment."""
+        super().close()
+
     def _setup_scene(self):
         self.cartpole = Articulation(self.cfg.robot_cfg)
         # add ground plane
@@ -100,7 +104,18 @@ class CartpoleEnv(DirectRLEnv):
             ),
             dim=-1,
         )
-        observations = {"policy": obs}
+
+        reward = self._get_rewards()
+
+        ended, time_out = self._get_dones()
+
+        is_last = time_out
+        is_terminal = ended
+        is_first = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        dones = {"is_first": is_first, "is_last": is_last, "is_terminal": is_terminal} 
+
+        observations = {"state": obs, "reward": reward}
+        observations.update(dones) 
         return observations
 
     def _get_rewards(self) -> torch.Tensor:
@@ -116,6 +131,7 @@ class CartpoleEnv(DirectRLEnv):
             self.joint_vel[:, self._cart_dof_idx[0]],
             self.reset_terminated,
         )
+
         return total_reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:

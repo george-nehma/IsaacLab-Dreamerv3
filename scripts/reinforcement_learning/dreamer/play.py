@@ -299,6 +299,7 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
     Args:
         states (ndarray): (n,7) or (n,14). Order:
                           (7)  = [x, y, z, vx, vy, vz, contact]
+                          (8)  = [qw, qx, qy, qz, wx, wy, wz, contact]
                           (14) = [qw, qx, qy, qz, x, y, z, vx, vy, vz, wx, wy, wz, contact]
         actions (ndarray): (n,3) or (n,6).
         rewards (ndarray): (n,).
@@ -336,7 +337,14 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
         _, adim = actions.shape
 
     # --- State labels ---
-    if sdim_old == 7:
+    if sdim_old == 4:
+        state_labels = ["pole ang [rad]", "pole vel [rad/s]", "cart pos [m]", "cart vel [m/s]"]
+        action_labels = ["cart force [N]"]
+        plot_titles = ["cartf force [N]"]
+        sdim = sdim_old
+        _, adim = actions.shape
+
+    elif sdim_old == 7:
         state_labels = ["x [m]", "y [m]", "z [m]", "vx [m/s]", "vy [m/s]", "vz [m/s]", "contact"]
         action_labels = ["Fx [N]", "Fy [N]", "Fz [N]"]
         plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]"]
@@ -353,6 +361,13 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
         plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]", "Fx + Mx [N/Nm]", " Fx + My [N/Nm]", "Mz [Nm]"]
         sdim = sdim_old
         _, adim = actions.shape
+    
+    elif sdim_old == 8:
+        state_labels = ["roll [deg]", "pitch [deg]", "yaw [deg]",
+                        "wx [deg/s]", "wy [deg/s]", "wz [deg/s]",
+                        "contact"]
+        action_labels = ["Mx [Nm]", "My [Nm]", "Mz [Nm]"]
+        plot_titles = ["Mx [Nm]", "My [Nm]", "Mz [Nm]"]
         
     elif sdim == 13:
         state_labels = ["roll [deg]", "pitch [deg]", "yaw [deg]",
@@ -362,13 +377,6 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
                         "contact"]
         action_labels = [ "Fx [N]", "Fy [N]", "Fz [N]", "Mx [Nm]", "My [Nm]", "Mz [Nm]"]
         plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]", "Fx + Mx [N/Nm]", " Fx + My [N/Nm]", "Mz [Nm]"]
-
-    elif sdim_old == 8:
-        state_labels = ["roll [deg]", "pitch [deg]", "yaw [deg]",
-                        "wx [deg/s]", "wy [deg/s]", "wz [deg/s]",
-                        "contact"]
-        action_labels = ["Mx [Nm]", "My [Nm]", "Mz [Nm]"]
-        plot_titles = ["Mx [Nm]", "My [Nm]", "Mz [Nm]"]
 
     else:
         raise ValueError("States must be (n,7), (n,8) or (n,14).")
@@ -566,7 +574,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             obs, reward, done = zip(*[p[:3] for p in results])
             done = np.array(done)
             reward_hist.append(reward[0])
-            state_hist.append(obs[0]['state'])
+            if 'state' in obs[0]:
+                state_hist.append(obs[0]['state'])
             
             control_hist.append(unnormalize(action[0]['action'],action_low, action_high))
 
@@ -583,8 +592,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 
         if done[0]:
             break
-
-    state_traj = np.stack(state_hist)
+    
+    if len(state_hist) > 1:
+        state_traj = np.stack(state_hist)
     actions = np.stack(control_hist)
     rewards = np.stack(reward_hist)
 
@@ -609,6 +619,10 @@ if __name__ == "__main__":
         task = "lander_states_direct"
     elif args_cli.task.startswith('Isaac-PlanetaryLander-Direct-6DOF-'):
         task = "lander_6dof_direct"
+    elif args_cli.task.startswith('Isaac-Cartpole-Direct-'):
+        task = "cartpole_direct"
+    elif args_cli.task.startswith('Isaac-Cartpole-RGB-Camera-Direct-'):
+        task = "cartpole_camera_direct"
     log_root_path = os.path.join("logs", "IsaacLab", task)
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
