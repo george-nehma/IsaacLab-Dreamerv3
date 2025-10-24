@@ -291,11 +291,16 @@ class DirectRLEnv(gym.Env):
         if seed is not None:
             self.seed(seed)
 
+<<<<<<< HEAD
         # reset state of scene (custom added)
         if self._sim_step_counter == 0:
             indices = torch.arange(self.num_envs, dtype=torch.int64, device=self.device)
         else: 
             indices = torch.nonzero(self.reset_buf, as_tuple=True)[0]
+=======
+        # reset state of scene
+        indices = torch.arange(self.num_envs, dtype=torch.int64, device=self.device)
+>>>>>>> upstream/main
         self._reset_idx(indices)
 
         # update articulation kinematics
@@ -309,8 +314,12 @@ class DirectRLEnv(gym.Env):
         if self.cfg.wait_for_textures and self.sim.has_rtx_sensors():
             while SimulationManager.assets_loading():
                 self.sim.render()
+<<<<<<< HEAD
         self.firsts = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.firsts[indices] = True
+=======
+
+>>>>>>> upstream/main
         # return observations
         return self._get_observations(), self.extras
 
@@ -338,6 +347,7 @@ class DirectRLEnv(gym.Env):
         Returns:
             A tuple containing the observations, rewards, resets (terminated and truncated) and extras.
         """
+<<<<<<< HEAD
         self.firsts[:] = False
         if isinstance(action, np.ndarray):
             action = torch.from_numpy(action).to(device=self.device)
@@ -345,6 +355,12 @@ class DirectRLEnv(gym.Env):
         # # add action noise
         # if self.cfg.action_noise_model:
         #     action = self._action_noise_model(action)
+=======
+        action = action.to(self.device)
+        # add action noise
+        if self.cfg.action_noise_model:
+            action = self._action_noise_model(action)
+>>>>>>> upstream/main
 
         # process actions
         self._pre_physics_step(action)

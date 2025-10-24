@@ -7,11 +7,11 @@ defaults:
   offline_evaldir: ''
   seed: 0
   deterministic_run: False
-  steps: 1e6
+  steps: 1e5
   parallel: False
-  eval_every: 5e4
+  eval_every: 5e3
   eval_episode_num: 10
-  log_every: 5e4
+  log_every: 5e3
   reset_every: 0
   device: 'cuda:0'
   compile: True
@@ -23,7 +23,7 @@ defaults:
   task: 'Isaac-PlanetaryLander-Direct-6DOF-v0'
   obs_keys: ['state','reward', is_first','is_last','is_terminal']
   size: [64, 64]
-  action_repeat: 8
+  action_repeat: 2
   time_limit: 5000 # train_length = time_limit/action_repeat
   grayscale: False
   prefill: 10000
@@ -39,7 +39,7 @@ defaults:
   dyn_std_act: 'sigmoid2'
   dyn_min_std: 0.1
   grad_heads: ['decoder', 'reward', 'cont']
-  units: 1024
+  units: 512
   act: 'SiLU'
   norm: True
   encoder:
@@ -62,7 +62,7 @@ defaults:
   initial: 'learned'
 
   # Training
-  batch_size: 16
+  batch_size: 4
   batch_length: 256
   train_ratio: 256
   envs: 8

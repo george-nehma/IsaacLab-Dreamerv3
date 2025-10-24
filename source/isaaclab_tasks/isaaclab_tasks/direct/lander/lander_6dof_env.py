@@ -66,6 +66,7 @@ class Lander6DOFEnvCfg(DirectRLEnvCfg):
 
     # robot
     robot: RigidObjectCfg = LUNAR_LANDER_CFG.replace(prim_path="/World/envs/env_.*/Robot")
+    robot.spawn.rigid_props.disable_gravity = True
     # robot: ArticulationCfg = LUNAR_LANDER_CFG.replace(prim_path="/World/envs/env_.*/Robot")
     # legs: RigidObjectCfg = RigidObjectCfg(
     #     prim_path = "/World/envs/env_.*/Robot/FR_LEG/Cylinder",
@@ -166,11 +167,11 @@ class Lander6DOFEnvCfg(DirectRLEnvCfg):
     # reward scales
     lin_vel_reward_scale = -100
     pos_reward_scale = -100
-    ang_vel_reward_scale = -10
-    ang_reward_scale = -200
+    ang_vel_reward_scale = -200
+    ang_reward_scale = -100
     mpower_reward_scale = -0.6
     spower_reward_scale = -0.3
-    tpower_reward_scale = -0.1
+    tpower_reward_scale = -0.3
     contact_reward_scale = 100.0
     du_reward_scale = -0.1
 
@@ -235,6 +236,7 @@ class Lander6DOFEnv(DirectRLEnv):
         self.prev_action = torch.zeros(self.action_space.shape, device=self.device)
         self.d_action = torch.zeros(self.action_space.shape, device=self.device)
         self._quat_prev = torch.zeros(self.num_envs, 4, device=self.device)
+        self.aligned_history = torch.zeros((self.num_envs, 10), dtype=torch.bool, device=self.device)
 
         # Total thrust and moment applied to the CoG of the lander
         self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
@@ -322,25 +324,9 @@ class Lander6DOFEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         
         ray_hits_w = self._height_scanner.data.ray_hits_w  # shape (num_envs, 121, 3)
-        # num_envs = ray_hits_w.shape[0]
-        # idx = 60
 
         # Extract z component at desired index
         z_values = ray_hits_w.mean(dim=1)  # shape (num_envs,)
-
-        # Find which ones are inf
-        # mask_inf = torch.isinf(z_values)
-
-        # if mask_inf.any():
-        #     idx_inf = torch.nonzero(mask_inf, as_tuple=True)[0]
-        #     print(f"broken array {ray_hits_w[idx_inf,:,:]}")# For each env where z is inf, find closest non-inf along the ray
-        #     non_inf_mask = ~torch.isinf(ray_hits_w[:, :, -1])  # shape (num_envs, 121)
-        #     non_inf_indices = torch.arange(ray_hits_w.shape[1], device=ray_hits_w.device)  # 0..120
-
-        #     for i in torch.nonzero(mask_inf).squeeze():
-        #         valid_indices = non_inf_indices[non_inf_mask[i]]
-        #         closest_idx = valid_indices[(valid_indices - idx).abs().argmin()]
-        #         z_values[i] = ray_hits_w[i, closest_idx, -1]
 
         self._altitude = self._height_scanner.data.pos_w[..., -1] - z_values[:,-1] - 1.23  # for the convex hull
         self._quat = self._robot.data.root_quat_w
@@ -349,8 +335,7 @@ class Lander6DOFEnv(DirectRLEnv):
         self._lin_vel = math.quat_apply(self._quat, self._imu.data.lin_vel_b)
         self._ang_vel = self._imu.data.ang_vel_b
                 
-        if torch.isinf(self._altitude).any():
-            print("altitude is -inf")
+
         # lin_acc = self._imu.data.lin_acc_b
         # ang_acc = self._imu.data.ang_acc_b
         
@@ -372,7 +357,6 @@ class Lander6DOFEnv(DirectRLEnv):
             dim=1
         )
 
-
         reward = self._get_rewards()
 
         ended, time_out = self._get_dones()
@@ -386,6 +370,82 @@ class Lander6DOFEnv(DirectRLEnv):
         observations = {"state": obs, "reward": reward}
         observations.update(dones)      
         return observations
+    
+
+
+
+
+
+
+
+
+    # def _get_rewards(self) -> torch.Tensor:
+
+    #     self._tpower = (self._actions[:, :] != 0).any(dim=1).to(dtype=torch.int, device=self.device)
+    
+    #     reward = torch.zeros(self.num_envs, device=self.device)
+    #     # Get data
+
+    #     # Desired orientation (identity quaternion)
+    #     target_quat = torch.tensor([1., 0., 0., 0.], device=self.device)
+    #     target_quat = target_quat.repeat(self.num_envs, 1)
+
+    #     # --- Orientation error ---
+    #     # quaternion distance metric: angle between q and q_des
+    #     dot = torch.sum(self._quat * target_quat, dim=1).clamp(-1.0, 1.0)
+    #     angle_error = 2 * torch.acos(torch.abs(dot))  # in radians
+    #     # or squared form for smoother gradients:
+    #     quat_diff = 1 - torch.abs(dot)
+    #     orient_penalty = quat_diff  # or angle_error**2 if you prefer
+
+    #     # --- Angular velocity penalty ---
+    #     ang_vel_penalty = torch.norm(self._ang_vel, dim=1)
+
+    #     # --- Effort penalty ---
+    #     torque_penalty = torch.norm(self._actions, dim=1)
+
+    #     # --- Shaping reward ---
+    #     shaping = (
+    #         self.cfg.ang_reward_scale * orient_penalty +
+    #         self.cfg.ang_vel_reward_scale * ang_vel_penalty
+    #     )
+
+    #     reward = torch.zeros(self.num_envs, device=self.device)
+    #     if self.cfg.prev_shaping is not None:
+    #         reward = shaping - self.cfg.prev_shaping
+    #     self.cfg.prev_shaping = shaping
+
+    #     # --- Power and control penalties ---
+    #     reward += (self.cfg.tpower_reward_scale * self._tpower)
+
+
+    #     # --- Terminal conditions ---
+    #     small_ang_err = angle_error < torch.deg2rad(torch.tensor(2.0, device=self.device))
+    #     small_ang_vel = torch.norm(self._ang_vel, dim=1) < 0.01
+
+    #     self.stabilized = small_ang_err & small_ang_vel
+    #     self.crashed = angle_error > torch.deg2rad(torch.tensor(45.0, device=self.device))
+    #     self._too_slow = ~self.stabilized & (self.episode_length_buf > 100)
+
+    #     reward[self.stabilized] += 3000
+    #     reward[self.crashed] = -4000
+
+    #     rewards = {"reward": reward}
+
+    #     # Logging
+    #     for key, value in rewards.items():
+    #         self._episode_sums[key] += value
+    #     return reward
+
+
+
+
+
+
+
+
+
+
 
     def _get_rewards(self) -> torch.Tensor:
 
@@ -398,11 +458,12 @@ class Lander6DOFEnv(DirectRLEnv):
         reward = torch.zeros(self.num_envs, device=self.device)
 
         roll,pitch,yaw = math.euler_xyz_from_quat(self._quat)  # shape (3)
+        # euler_angles = torch.stack([roll, pitch, yaw], dim=1)
         e_roll = 2*(1-torch.cos(math.wrap_to_pi(roll)))
         e_pitch = 2*(1-torch.cos(math.wrap_to_pi(pitch)))
         e_yaw = 2*(1-torch.cos(math.wrap_to_pi(yaw)))
         e_angle = torch.stack([e_roll, e_pitch, e_yaw], dim=1)
-        alignment = torch.sum(e_angle, dim=1)
+        self.alignment = torch.sum(e_angle, dim=1)
         # v_unit = self._lin_vel / (torch.norm(self._lin_vel, dim=1, keepdim=True) + 1e-8)
         # z_axis_body = torch.tensor([0, 0, -1], dtype=torch.float, device=self.device).expand(self.num_envs, -1)
         # z_world = math.quat_apply(self._quat, z_axis_body)
@@ -423,7 +484,7 @@ class Lander6DOFEnv(DirectRLEnv):
         # algn_ok = xy_sq < tilt_thresh
 
         # --- Hovering conditions ---
-        algn_ok = alignment < 4.5e-4
+        algn_ok = self.alignment < 4.5e-4
         # algn_ok = alignment < 3.01e-2 # within 1 degree on each axis
         # algn_ok = torch.norm(torch.stack([roll, pitch], dim=1), dim=1) < torch.deg2rad(1.0)
         # alt_ok = self._altitude <= 2.0
@@ -442,9 +503,24 @@ class Lander6DOFEnv(DirectRLEnv):
         # tilted_landing = (~algn_ok) & alt_ok
         # self._crashed = hard_landing | tilted_landing
 
-        self._bad_align = ~algn_ok #& (self._altitude <5.0)
-        self._aligned = algn_ok # & (self._altitude <5.0)
-        self._too_slow = (self.episode_length_buf > 100 + self.episode_init) & self._bad_align 
+        # --- Closely aligned conditions ---
+        # algn_lim = (euler_angles.abs() > np.deg2rad(30)).any(dim=1)
+        # ang_vel_lim = (self._ang_vel.abs() > np.deg2rad(10)).any(dim=1)
+
+        # --- Aligned conditions ---
+        # algn_ok = (euler_angles.abs() < np.deg2rad(1)).all(dim=1)
+        # ang_vel_ok = (self._ang_vel.abs() < np.deg2rad(0.2)).all(dim=1)
+
+        self._bad_align = ~algn_ok
+        self._aligned = algn_ok
+        self.aligned_history = torch.roll(self.aligned_history, shifts=-1, dims=1)
+        self.aligned_history[:, -1] = self._aligned
+        self._too_slow = (self.episode_length_buf > 100) & self._bad_align
+
+        # self._bad_align = algn_lim | ang_vel_lim #& (self._altitude <5.0)
+        # self._aligned = algn_ok & ang_vel_ok # & (self._altitude <5.0)
+        # self._align_close = algn_eh & ang_vel_eh
+        # self._too_slow = (self.episode_length_buf > 100) & (~algn_ok | ~ang_vel_ok) 
 
 
         # --- Missed conditions ---
@@ -454,10 +530,10 @@ class Lander6DOFEnv(DirectRLEnv):
                     # + self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1)
 
         
-
-        ang_reward = self.cfg.ang_reward_scale * alignment/(torch.pi)
+        ang_reward = self.cfg.ang_reward_scale * self.alignment/(torch.pi)
+        # ang_reward = self.cfg.ang_reward_scale * torch.norm(euler_angles, dim=1)
         ang_vel_reward = self.cfg.ang_vel_reward_scale * torch.norm(self._ang_vel, dim=1)
-        # reward = ang_reward + ang_vel_reward
+        # shaping = ang_reward + ang_vel_reward
 
         # if self.cfg.prev_shaping is not None:
         #     reward = shaping - self.cfg.prev_shaping
@@ -467,12 +543,13 @@ class Lander6DOFEnv(DirectRLEnv):
         #             self.cfg.mpower_reward_scale * self._mpower + 
         #             self.cfg.tpower_reward_scale * self._tpower)
         norm_actions = torch.norm(self._actions, dim=1)/self.actionHigh.max()
-        # reward += (self.cfg.tpower_reward_scale * norm_actions)
+        # reward += (self.cfg.tpower_reward_scale * self._tpower)
         du = torch.norm(self.d_action, dim=1)/self.actionHigh.max()
+        self.omega = torch.norm(self._ang_vel, dim=1)
         # reward += self.cfg.du_reward_scale * du
 
-        # reward = 2*torch.exp(-alignment/(0.04*2*torch.pi)) - 0.3*norm_actions - 0.3*du
-        reward = -alignment - 0.3*norm_actions - 0.3*du - 0.01*torch.norm(self._ang_vel, dim=1)
+        reward = 2*torch.exp(-self.alignment/(0.04*2*torch.pi)) - 0.3*norm_actions # - 0.3*du
+        # reward = -self.alignment - 0.01*omega - 0.03*norm_actions # - 0.003*du**2
         reward[(self._quat[:,0] > self._quat_prev[:,0])] -= 1
         # print(f"change in angle: {self._quat[:,0] - self._quat_prev[:,0][0]:.4f}")
         self._quat_prev = self._quat.clone()
@@ -509,13 +586,15 @@ class Lander6DOFEnv(DirectRLEnv):
         #             Angular Velocity  {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
         #             at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
 
-        # reward[self._landed] = 3000
-        # reward[self._crashed] = -4000
-        # reward[self._missed] += 0
-        reward[~algn_ok & (torch.norm(self._ang_vel) > 0.5)  & (self.episode_length_buf > 100 + self.episode_init)] = -25
+        # reward[self._aligned] = 3000
+        # reward[algn_ok] = 1500
+        # reward[self._bad_align] = -4000
+        # reward -= 0.5*torch.norm(self._actions, dim=1)
+        reward[(self.omega > np.deg2rad(25))] = -1000
+        reward[~algn_ok & (self.omega > np.deg2rad(0.5))  & (self.episode_length_buf > 100)] = -500
         reward[self._too_slow] = 0
-        reward[self._aligned] += 9
-        reward[self._aligned & (self.episode_length_buf > 100 + self.episode_init)] = 50
+        reward[self._aligned] += 50
+        reward[self.aligned_history.all(dim=1)] = 500
         # reward += 3000.0 * torch.exp(-2000 * torch.abs(alignment-8.98e-2)) 
 
         rewards = {"reward": reward}
@@ -524,6 +603,7 @@ class Lander6DOFEnv(DirectRLEnv):
         for key, value in rewards.items():
             self._episode_sums[key] += value
         return reward
+
 
 
 
@@ -645,19 +725,20 @@ class Lander6DOFEnv(DirectRLEnv):
 
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        self.time_out = self.episode_length_buf >= self.max_episode_length - 1
+        self.time_out = (self.episode_length_buf >= self.max_episode_length - 1) | self._too_slow
 
         self.out_of_bounds_x = torch.logical_or(self._robot.data.root_pos_w[:,0] > 40, self._robot.data.root_pos_w[:,0] < -40)
         self.out_of_bounds_y = torch.logical_or(self._robot.data.root_pos_w[:,1] > 40, self._robot.data.root_pos_w[:,1] < -40)
         self.out_of_bounds = torch.logical_or(self.out_of_bounds_x, self.out_of_bounds_y)
     
-        # self.terminated = torch.logical_or(self._crashed, self._missed)
-        # self.terminated = torch.logical_or(self.terminated, self._bad_align)
-        # self.terminated = torch.logical_or(self.terminated, self._aligned)
+        # self.terminated = torch.logical_or(self.crashed, self.stabilized)
         # self.terminated = torch.logical_or(self.terminated, self._landed)
-        self.terminated = torch.logical_or(self._too_slow, self.out_of_bounds)
 
-        # if self.terminated.any():
+        self.terminated = self.aligned_history.all(dim=1)
+        self.terminated = torch.logical_or(self.terminated, (self.omega > np.deg2rad(25)))
+
+        # if self.terminated.sum() < 8 and self.terminated.sum() >= 1:
+        #     print("stop")
         #     idx = self.terminated.nonzero(as_tuple=False).squeeze(-1)
         #     roll, pitch, yaw = math.euler_xyz_from_quat(self._quat)
         #     for i in idx:
@@ -675,7 +756,7 @@ class Lander6DOFEnv(DirectRLEnv):
         if env_ids is None or len(env_ids) == self.num_envs:
             env_ids = self._robot._ALL_INDICES
 
-
+        self.aligned_history[env_ids,:] = False
         # Logging
         final_distance_to_goal = torch.linalg.norm(
             self._desired_pos_w[env_ids] - self._robot.data.root_pos_w[env_ids], dim=1
@@ -699,9 +780,9 @@ class Lander6DOFEnv(DirectRLEnv):
         super()._reset_idx(env_ids)
         if len(env_ids) == self.num_envs and self.num_envs > 1:
             # Spread out the resets to avoid spikes in training when many environments reset at a similar time
-            self.episode_length_buf = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length)-100)
+            self.episode_length_buf = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length)-870)
             
-        self.episode_init[env_ids] = self.episode_length_buf[env_ids]
+        # self.episode_init[env_ids] = self.episode_length_buf[env_ids]
         # if len(env_ids) == self.num_envs:
         #     self.episode_init[2] -= 10
         

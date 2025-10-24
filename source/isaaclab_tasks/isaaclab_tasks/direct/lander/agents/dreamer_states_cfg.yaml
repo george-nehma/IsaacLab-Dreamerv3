@@ -9,7 +9,7 @@ defaults:
   deterministic_run: False
   steps: 1.8e5
   parallel: False
-  eval_every: 5e4
+  eval_every: 1e4
   eval_episode_num: 10
   log_every: 5e3
   reset_every: 0

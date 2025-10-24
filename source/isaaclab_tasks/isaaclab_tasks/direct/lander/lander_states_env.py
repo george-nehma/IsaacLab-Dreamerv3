@@ -254,26 +254,10 @@ class LanderStatesEnv(DirectRLEnv):
     def _get_observations(self) -> dict:
         
         ray_hits_w = self._height_scanner.data.ray_hits_w  # shape (num_envs, 121, 3)
-        # num_envs = ray_hits_w.shape[0]
-        # idx = 60
 
         # Extract z component at desired index
         z_values = ray_hits_w.mean(dim=1)  # shape (num_envs,)
-
-        # Find which ones are inf
-        # mask_inf = torch.isinf(z_values)
-
-        # if mask_inf.any():
-        #     idx_inf = torch.nonzero(mask_inf, as_tuple=True)[0]
-        #     print(f"broken array {ray_hits_w[idx_inf,:,:]}")# For each env where z is inf, find closest non-inf along the ray
-        #     non_inf_mask = ~torch.isinf(ray_hits_w[:, :, -1])  # shape (num_envs, 121)
-        #     non_inf_indices = torch.arange(ray_hits_w.shape[1], device=ray_hits_w.device)  # 0..120
-
-        #     for i in torch.nonzero(mask_inf).squeeze():
-        #         valid_indices = non_inf_indices[non_inf_mask[i]]
-        #         closest_idx = valid_indices[(valid_indices - idx).abs().argmin()]
-        #         z_values[i] = ray_hits_w[i, closest_idx, -1]
-
+        
         self._quat = self._robot.data.root_quat_w
         self._altitude = self._height_scanner.data.pos_w[..., -1] - z_values[:,-1] - 2.03/2  # for the convex hull
         self._pos = self._robot.data.root_pos_w
@@ -306,7 +290,7 @@ class LanderStatesEnv(DirectRLEnv):
 
         ended, time_out = self._get_dones()
         # elementwise OR: if either landed or time_out is True
-        is_last =  time_out   # torch.Size([4])
+        is_last = time_out   # torch.Size([4])
         is_terminal = ended
         is_first = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
             
