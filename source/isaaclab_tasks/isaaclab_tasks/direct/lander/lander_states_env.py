@@ -231,8 +231,13 @@ class LanderStatesEnv(DirectRLEnv):
         self.scene.clone_environments(copy_from_source=False)
         # we need to explicitly filter collisions for CPU simulation
         # add lights
-        light_cfg = sim_utils.DomeLightCfg(intensity=10.0, color=(0.75, 0.75, 0.75))
+        light_cfg = sim_utils.DomeLightCfg(intensity=1000.0, 
+                                           color=(0.75, 0.75, 0.75),
+                                           texture_file ="/workspace/isaaclab/source/lander_assets/HDR_white_local_star.hdr",
+                                           texture_format = "latlong",)
         light_cfg.func("/World/Light", light_cfg)
+        dlight_cfg = sim_utils.DistantLightCfg(intensity=1000.0)
+        dlight_cfg.func("/World/DistantLight", dlight_cfg)
 
     # takes normalised action and convert to real thrust and moment. Fz maps [-1,1] to [0, 1]
     def _pre_physics_step(self, actions: torch.Tensor):
@@ -363,18 +368,20 @@ class LanderStatesEnv(DirectRLEnv):
             #     print(f"Env {i} Hovering with Position {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}, Velocity {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f} at time {self.episode_length_buf[i]*self.sim.cfg.dt:.2f}s")
             if self._landed[i]:
                 print(f"""Env {i} Landed with:
-                    Position          {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
-                    Velocity          {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
-                    at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
+                    Position [m]             {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
+                    Velocity [m/s]           {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
+                    Contact Time             {contact[i]*self.step_dt:.2f}s
+                    at time                  {self.episode_length_buf[i] * self.step_dt:.2f}s""")
             elif self._crashed[i]:
                 print(f"""Env {i} Crashed with:
-                    Position          {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
-                    Velocity          {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
+                    Position [m]      {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
+                    Velocity [m/s]    {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
+                    Contact Time      {contact[i]*self.step_dt:.2f}s
                     at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
             elif self._missed[i]:
                 print(f"""Env {i} Missed with:
-                    Position          {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
-                    Velocity          {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
+                    Position [m]      {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
+                    Velocity [m/s]    {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
                     at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
                 
         rewards = {"reward": reward}

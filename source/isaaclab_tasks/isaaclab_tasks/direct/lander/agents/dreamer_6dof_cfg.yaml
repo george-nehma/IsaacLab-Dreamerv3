@@ -7,7 +7,7 @@ defaults:
   offline_evaldir: ''
   seed: 0
   deterministic_run: False
-  steps: 1e5
+  steps: 3e5
   parallel: False
   eval_every: 5e3
   eval_episode_num: 10
@@ -26,7 +26,7 @@ defaults:
   action_repeat: 2
   time_limit: 5000 # train_length = time_limit/action_repeat
   grayscale: False
-  prefill: 10000
+  prefill: 8000
   reward_EMA: True
 
   # Model

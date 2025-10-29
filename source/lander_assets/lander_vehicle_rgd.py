@@ -27,7 +27,7 @@ LUNAR_LANDER_CFG = RigidObjectCfg(
         mass_props=sim_utils.MassPropertiesCfg(
             mass=500.0,
         ),
-        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0), metallic = 0.8),
+        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1, 245/255, 184/255), metallic = 0.8),
     ),
     debug_vis=True,
     init_state=RigidObjectCfg.InitialStateCfg(

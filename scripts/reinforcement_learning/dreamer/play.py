@@ -306,9 +306,9 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
         dt (float): timestep size.
         save_prefix (str): prefix for saved figures.
     """
-    n, sdim_old = states.shape
+    n, sdim = states.shape
     
-    if sdim_old == 8 or sdim_old == 14:
+    if sdim == 8 or sdim == 14:
         w = states[:, 0]
         x = states[:, 1]
         y = states[:, 2]
@@ -337,21 +337,14 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
         _, adim = actions.shape
 
     # --- State labels ---
-    if sdim_old == 4:
-        state_labels = ["pole ang [rad]", "pole vel [rad/s]", "cart pos [m]", "cart vel [m/s]"]
-        action_labels = ["cart force [N]"]
-        plot_titles = ["cartf force [N]"]
-        sdim = sdim_old
-        _, adim = actions.shape
 
-    elif sdim_old == 7:
+    if sdim == 7:
         state_labels = ["x [m]", "y [m]", "z [m]", "vx [m/s]", "vy [m/s]", "vz [m/s]", "contact"]
         action_labels = ["Fx [N]", "Fy [N]", "Fz [N]"]
         plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]"]
-        sdim = sdim_old
         _, adim = actions.shape
     
-    elif sdim_old == 14:
+    elif sdim == 14:
         state_labels = ["qw", "qx", "qy", "qz",
                         "x [m]", "y [m]", "z [m]",
                         "vx [m/s]", "vy [m/s]", "vz [m/s]",
@@ -359,16 +352,8 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
                         "contact"]
         action_labels = [ "Fx [N]", "Fy [N]", "Fz [N]", "Mx [Nm]", "My [Nm]", "Mz [Nm]"]
         plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]", "Fx + Mx [N/Nm]", " Fx + My [N/Nm]", "Mz [Nm]"]
-        sdim = sdim_old
-        _, adim = actions.shape
-    
-    elif sdim_old == 8:
-        state_labels = ["roll [deg]", "pitch [deg]", "yaw [deg]",
-                        "wx [deg/s]", "wy [deg/s]", "wz [deg/s]",
-                        "contact"]
-        action_labels = ["Mx [Nm]", "My [Nm]", "Mz [Nm]"]
-        plot_titles = ["Mx [Nm]", "My [Nm]", "Mz [Nm]"]
         
+
     elif sdim == 13:
         state_labels = ["roll [deg]", "pitch [deg]", "yaw [deg]",
                         "x [m]", "y [m]", "z [m]",
@@ -377,7 +362,7 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
                         "contact"]
         action_labels = [ "Fx [N]", "Fy [N]", "Fz [N]", "Mx [Nm]", "My [Nm]", "Mz [Nm]"]
         plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]", "Fx + Mx [N/Nm]", " Fx + My [N/Nm]", "Mz [Nm]"]
-
+        
     else:
         raise ValueError("States must be (n,7), (n,8) or (n,14).")
 

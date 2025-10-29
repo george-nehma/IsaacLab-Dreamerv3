@@ -66,7 +66,7 @@ class Lander6DOFEnvCfg(DirectRLEnvCfg):
 
     # robot
     robot: RigidObjectCfg = LUNAR_LANDER_CFG.replace(prim_path="/World/envs/env_.*/Robot")
-    robot.spawn.rigid_props.disable_gravity = True
+    # robot.spawn.rigid_props.disable_gravity = True
     # robot: ArticulationCfg = LUNAR_LANDER_CFG.replace(prim_path="/World/envs/env_.*/Robot")
     # legs: RigidObjectCfg = RigidObjectCfg(
     #     prim_path = "/World/envs/env_.*/Robot/FR_LEG/Cylinder",
@@ -160,50 +160,19 @@ class Lander6DOFEnvCfg(DirectRLEnvCfg):
     )
 
     # spaces
-    action_space = 3 # 3D translational
-    state_space = 8
+    action_space = 6 # 3D translational Fx,Fy,Fz,Mx,My,Mz
+    state_space = 14
     observation_space = state_space # q0, q1, q2, q3, pos x, pos y, pos z, vel x, vel y, vel z, om_x, om_y, om_z, contact bool,
 
     # reward scales
-    lin_vel_reward_scale = -100
-    pos_reward_scale = -100
-    ang_vel_reward_scale = -200
-    ang_reward_scale = -100
-    mpower_reward_scale = -0.6
-    spower_reward_scale = -0.3
+    lin_vel_reward_scale = -1
+    pos_reward_scale = -1
+    du_reward_scale = -0.05
+    mpower_reward_scale = -0.006
+    spower_reward_scale = -0.003
     tpower_reward_scale = -0.3
-    contact_reward_scale = 100.0
+    contact_reward_scale = 1.0
     du_reward_scale = -0.1
-
-    # pos_reward_scale = 0.8
-    # lin_vel_reward_scale = 0.5
-    # ang_reward_scale = 0.8
-    # ang_vel_reward_scale = 0.3
-
-    # ctrl_cost_scale = 0.012      # control magnitude cost
-    # spower_penalty_scale = 0.01
-    # mpower_penalty_scale = 0.05
-    # tpower_penalty_scale = 0.05
-    # hover_ctrl_penalty = 0.2
-
-    # up_vel_penalty = 1.0        # penalty for positive vz
-    # contact_reward_scale = 1.0
-
-    # attitude_tol_rad = 0.03     # ~8.6 degrees for landed
-    # bad_align_rad = 0.5         # large penalty if > ~28.6 degrees near ground
-    # alt_tol = 2.0               # altitude threshold for hover/land checks
-
-    # success_reward = 50.0
-    # crash_penalty = 20.0
-    # bad_align_penalty = 40.0
-
-    # reward_clip = 100.0
-
-
-
-
-
-
 
     vlim = 0.3  # [m/s] linear velocity limit for landing
     rlim = 2
@@ -228,15 +197,17 @@ class Lander6DOFEnv(DirectRLEnv):
 
         self.actionHigh = np.full(self.action_space.shape, 1000, dtype=np.float32) # max thrust of RCS thrusters [N] and moment [Nm]
         self.actionLow = np.full(self.action_space.shape, -1000, dtype=np.float32) # min thrust of RCS thrusters [N] and moment [Nm]
-        # self.actionLow[:,:2] = -0.0 # [Nm]
-        # self.actionHigh[:,:2] = 0.0 # [Nm]
-        # self.actionLow[:,2] = 0.0
-        # self.actionHigh[:,2] = 0.0
+        self.actionLow[:,2] = 0.0
+        self.actionHigh[:,2] = 4000.0
         self.action_space = gym.spaces.Box(dtype=np.float32, shape=self.actionHigh.shape ,low=self.actionLow, high=self.actionHigh)
         self.prev_action = torch.zeros(self.action_space.shape, device=self.device)
         self.d_action = torch.zeros(self.action_space.shape, device=self.device)
-        self._quat_prev = torch.zeros(self.num_envs, 4, device=self.device)
         self.aligned_history = torch.zeros((self.num_envs, 10), dtype=torch.bool, device=self.device)
+        self._alignment_prev = torch.zeros(self.num_envs, device=self.device)
+        self.landed_hist = 0
+        self.crashed_hist = 0
+        self.missed_hist = 0
+        self.aligned_hist = 0
 
         # Total thrust and moment applied to the CoG of the lander
         self._actions = torch.zeros(self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device)
@@ -304,18 +275,15 @@ class Lander6DOFEnv(DirectRLEnv):
         self._actions = actions.clone().clamp(torch.tensor(self.action_space.low, device=self.device), torch.tensor(self.action_space.high, device=self.device))
         self.d_action = self._actions - self.prev_action
         self.prev_action = self._actions.clone()
-        # xthrust = self._actions[:,0] - self._actions[:,1]  # x thrust
-        # ythrust = self._actions[:,2] - self._actions[:,3]
-        # zthrust = self._actions[:,4]  # z thrust
-        # xthrust = self._actions[:,0]  # x thrust
-        # ythrust = self._actions[:,1]  # y thrust
-        # zthrust = self._actions[:,2]  # z thrust
-        xmoment = self._actions[:,0]  # x moment
-        ymoment = self._actions[:,1]  # y moment
-        zmoment = self._actions[:,2]  # z moment
-        # thrusts = torch.stack([xthrust, ythrust, zthrust], dim=-1)  # [N, 3]
+        xthrust = self._actions[:,0]  # x thrust
+        ythrust = self._actions[:,1]  # y thrust
+        zthrust = self._actions[:,2]  # z thrust
+        xmoment = self._actions[:,3]  # x moment
+        ymoment = self._actions[:,4]  # y moment
+        zmoment = self._actions[:,5]  # z moment
+        thrusts = torch.stack([xthrust, ythrust, zthrust], dim=-1)  # [N, 3]
         moments = torch.stack([xmoment, ymoment, zmoment], dim=-1)  # [N, 3]
-        # self._thrust[:, 0, :] = thrusts  # [N]
+        self._thrust[:, 0, :] = thrusts  # [N]
         self._moment[:, 0, :] = moments # don't update moment in 2D env but pass through as zero
 
     def _apply_action(self):
@@ -327,6 +295,9 @@ class Lander6DOFEnv(DirectRLEnv):
 
         # Extract z component at desired index
         z_values = ray_hits_w.mean(dim=1)  # shape (num_envs,)
+        if torch.any(torch.isinf(z_values)):
+            print("Warning: Inf values detected in raycast hits. Replacing with zeros.")
+            z_values = torch.where(torch.isinf(z_values), torch.zeros_like(z_values), z_values)
 
         self._altitude = self._height_scanner.data.pos_w[..., -1] - z_values[:,-1] - 1.23  # for the convex hull
         self._quat = self._robot.data.root_quat_w
@@ -346,10 +317,10 @@ class Lander6DOFEnv(DirectRLEnv):
             [
                 # camera_data.view(4, -1),       # [n, 30000]
                 self._quat.view(self.num_envs, -1),      # [n, 4]
-                # self._pos.view(self.num_envs, -1),       # [n, 3]
+                self._pos.view(self.num_envs, -1),       # [n, 3]
                 # lin_acc.view(self.num_envs, -1),           # [n, 3]
                 # ang_acc.view(4, -1),           # [n, 3]
-                # self._lin_vel.view(self.num_envs, -1),           # [n, 3]
+                self._lin_vel.view(self.num_envs, -1),           # [n, 3]
                 self._ang_vel.view(self.num_envs, -1),           # [n, 3]
                 # ang_vel.view(4, -1),           # [n, 3]
                 self._contact.view(self.num_envs, -1),           # [4, 3]  ← squeeze out the 2nd dim
@@ -371,384 +342,190 @@ class Lander6DOFEnv(DirectRLEnv):
         observations.update(dones)      
         return observations
     
-
-
-
-
-
-
-
-
-    # def _get_rewards(self) -> torch.Tensor:
-
-    #     self._tpower = (self._actions[:, :] != 0).any(dim=1).to(dtype=torch.int, device=self.device)
-    
-    #     reward = torch.zeros(self.num_envs, device=self.device)
-    #     # Get data
-
-    #     # Desired orientation (identity quaternion)
-    #     target_quat = torch.tensor([1., 0., 0., 0.], device=self.device)
-    #     target_quat = target_quat.repeat(self.num_envs, 1)
-
-    #     # --- Orientation error ---
-    #     # quaternion distance metric: angle between q and q_des
-    #     dot = torch.sum(self._quat * target_quat, dim=1).clamp(-1.0, 1.0)
-    #     angle_error = 2 * torch.acos(torch.abs(dot))  # in radians
-    #     # or squared form for smoother gradients:
-    #     quat_diff = 1 - torch.abs(dot)
-    #     orient_penalty = quat_diff  # or angle_error**2 if you prefer
-
-    #     # --- Angular velocity penalty ---
-    #     ang_vel_penalty = torch.norm(self._ang_vel, dim=1)
-
-    #     # --- Effort penalty ---
-    #     torque_penalty = torch.norm(self._actions, dim=1)
-
-    #     # --- Shaping reward ---
-    #     shaping = (
-    #         self.cfg.ang_reward_scale * orient_penalty +
-    #         self.cfg.ang_vel_reward_scale * ang_vel_penalty
-    #     )
-
-    #     reward = torch.zeros(self.num_envs, device=self.device)
-    #     if self.cfg.prev_shaping is not None:
-    #         reward = shaping - self.cfg.prev_shaping
-    #     self.cfg.prev_shaping = shaping
-
-    #     # --- Power and control penalties ---
-    #     reward += (self.cfg.tpower_reward_scale * self._tpower)
-
-
-    #     # --- Terminal conditions ---
-    #     small_ang_err = angle_error < torch.deg2rad(torch.tensor(2.0, device=self.device))
-    #     small_ang_vel = torch.norm(self._ang_vel, dim=1) < 0.01
-
-    #     self.stabilized = small_ang_err & small_ang_vel
-    #     self.crashed = angle_error > torch.deg2rad(torch.tensor(45.0, device=self.device))
-    #     self._too_slow = ~self.stabilized & (self.episode_length_buf > 100)
-
-    #     reward[self.stabilized] += 3000
-    #     reward[self.crashed] = -4000
-
-    #     rewards = {"reward": reward}
-
-    #     # Logging
-    #     for key, value in rewards.items():
-    #         self._episode_sums[key] += value
-    #     return reward
-
-
-
-
-
-
-
-
-
-
-
     def _get_rewards(self) -> torch.Tensor:
 
         contact = self._contact_sensor.data.current_contact_time.squeeze(1)
         
-        # self._mpower = (self._actions[:,2] != 0).to(dtype=torch.int, device=self.device) # changed from 4 to 2
-        # self._spower = (self._actions[:, :2] != 0).any(dim=1).to(dtype=torch.int, device=self.device)
+        self._mpower = (self._actions[:,2] != 0).to(dtype=torch.int, device=self.device) # changed from 4 to 2
+        self._spower = (self._actions[:, :2] != 0).any(dim=1).to(dtype=torch.int, device=self.device)
         self._tpower = (self._actions[:, :] != 0).any(dim=1).to(dtype=torch.int, device=self.device)
     
         reward = torch.zeros(self.num_envs, device=self.device)
 
-        roll,pitch,yaw = math.euler_xyz_from_quat(self._quat)  # shape (3)
-        # euler_angles = torch.stack([roll, pitch, yaw], dim=1)
-        e_roll = 2*(1-torch.cos(math.wrap_to_pi(roll)))
-        e_pitch = 2*(1-torch.cos(math.wrap_to_pi(pitch)))
-        e_yaw = 2*(1-torch.cos(math.wrap_to_pi(yaw)))
-        e_angle = torch.stack([e_roll, e_pitch, e_yaw], dim=1)
-        self.alignment = torch.sum(e_angle, dim=1)
-        # v_unit = self._lin_vel / (torch.norm(self._lin_vel, dim=1, keepdim=True) + 1e-8)
-        # z_axis_body = torch.tensor([0, 0, -1], dtype=torch.float, device=self.device).expand(self.num_envs, -1)
-        # z_world = math.quat_apply(self._quat, z_axis_body)
-        # alignment = torch.sum(v_unit * z_world, dim=1)
+        # --- Attitude Reward ---
+        q_des = torch.tensor([1.0, 0.0, 0.0, 0.0], device=self.device).expand(self.num_envs, -1)
+        q_conj = torch.cat([self._quat[:, 0:1], -self._quat[:, 1:]], dim=1)
+        e_q0 = q_conj[:, 0:1] * q_des[:, 0:1] - torch.sum(q_conj[:, 1:] * q_des[:, 1:], dim=1, keepdim=True)
+        e_qv = q_conj[:, 0:1] * q_des[:, 1:] + q_des[:, 0:1] * q_conj[:, 1:] + torch.cross(q_conj[:, 1:], q_des[:, 1:], dim=1)
+        self.alignment = 2.0 * torch.atan2(torch.norm(e_qv, dim=1), torch.abs(e_q0.squeeze(1)))
+        self.alignment = torch.clamp(self.alignment, 0.0, torch.pi)
+        self._aligned = self.alignment < 1e-2 #4.5e-4
+        self.omega = torch.norm(self._ang_vel, dim=1)
+        angle_delta = torch.abs(self.alignment - self._alignment_prev)
+        self._alignment_prev = self.alignment.clone()
 
-        # q_des = torch.tensor([1.0, 0.0, 0.0, 0.0], dtype=torch.float, device=self.device).expand(self.num_envs, -1)
-        # self_conj = torch.cat([self._quat[:, 0:1], -self._quat[:, 1:]], dim=1)
-        # e_q0 = self_conj[:,0:1]*q_des[:,0:1] - torch.sum(self_conj[:,1:]*q_des[:,1:], dim=1, keepdim=True)
-        # e_qv = self_conj[:,0:1]*q_des[:,1:] + q_des[:,0:1]*self_conj[:,1:] + torch.cross(self_conj[:,1:], q_des[:,1:], dim=1)
-        # d = torch.sum(self._quat * q_des, dim=-1)                 # shape (...)
-        # d = torch.abs(d)                                # account for q ~ -q
-        # d = torch.clamp(d, -1.0, 1.0)
-        # alignment = 2.0 * torch.atan2(torch.norm(e_qv, dim=1), e_q0.squeeze(1))
-        # print(f"Alignment: {alignment[0]:.4f}")
-
-        # tilt_thresh = (1.0 - torch.cos(torch.deg2rad(torch.tensor(2.0, device=self.device)))) / 2.0
-        # xy_sq = self._robot.data.root_quat_w[..., 1]**2 + self._robot.data.root_quat_w[..., 2]**2
-        # algn_ok = xy_sq < tilt_thresh
-
-        # --- Hovering conditions ---
-        algn_ok = self.alignment < 4.5e-4
-        # algn_ok = alignment < 3.01e-2 # within 1 degree on each axis
-        # algn_ok = torch.norm(torch.stack([roll, pitch], dim=1), dim=1) < torch.deg2rad(1.0)
-        # alt_ok = self._altitude <= 2.0
-        # vel_ok = torch.norm(self._lin_vel, dim=1) < self.cfg.vlim
-        # pos_ok = torch.norm(self._pos[:, :2], dim=1) < self.cfg.rlim
-        # no_contact = contact <= 0.1
-        # self._hovering = algn_ok & alt_ok & vel_ok & pos_ok & no_contact
-
-        # --- Landed conditions ---
-        # vel_landed = torch.abs(self._lin_vel[:, 2]) < self.cfg.vlim
-        # contact_landed = vel_landed & (contact > 0.5)
-        # self._landed = algn_ok & pos_ok & contact_landed
-
-        # --- Crashed conditions ---
-        # hard_landing = (contact > 0) & (~vel_landed)
-        # tilted_landing = (~algn_ok) & alt_ok
-        # self._crashed = hard_landing | tilted_landing
-
-        # --- Closely aligned conditions ---
-        # algn_lim = (euler_angles.abs() > np.deg2rad(30)).any(dim=1)
-        # ang_vel_lim = (self._ang_vel.abs() > np.deg2rad(10)).any(dim=1)
-
-        # --- Aligned conditions ---
-        # algn_ok = (euler_angles.abs() < np.deg2rad(1)).all(dim=1)
-        # ang_vel_ok = (self._ang_vel.abs() < np.deg2rad(0.2)).all(dim=1)
-
-        self._bad_align = ~algn_ok
-        self._aligned = algn_ok
+        # --- Alignment conditions ---
         self.aligned_history = torch.roll(self.aligned_history, shifts=-1, dims=1)
         self.aligned_history[:, -1] = self._aligned
-        self._too_slow = (self.episode_length_buf > 100) & self._bad_align
 
-        # self._bad_align = algn_lim | ang_vel_lim #& (self._altitude <5.0)
-        # self._aligned = algn_ok & ang_vel_ok # & (self._altitude <5.0)
-        # self._align_close = algn_eh & ang_vel_eh
-        # self._too_slow = (self.episode_length_buf > 100) & (~algn_ok | ~ang_vel_ok) 
+        norm_actions = torch.norm(self._actions[:,3:], dim=1)/self.actionHigh.min()
+        # du = torch.norm(self.d_action/self.actionHigh, dim=1)
 
+        # --- Attitude reward ---
+        reward = 20*torch.exp(-self.alignment/(0.04))- 0.2*norm_actions # - 0.3*du
+        reward -= 0.05*self._ang_vel[:,0].abs()
+        reward -= 0.05*self._ang_vel[:,1].abs()
+        reward -= 0.05*self._ang_vel[:,2].abs()
+
+
+        # --- Translational reward ---
+        
+        # --- Hovering conditions ---
+        alt_ok = self._altitude <= 2.0
+        vel_ok = torch.norm(self._lin_vel, dim=1) < self.cfg.vlim
+        pos_ok = torch.norm(self._pos[:, :2], dim=1) < self.cfg.rlim
+        no_contact = contact <= 0.1
+        self._hovering = alt_ok & vel_ok & pos_ok & no_contact
+
+        # --- Landed conditions ---
+        vel_landed = torch.abs(self._lin_vel[:, 2]) < self.cfg.vlim
+        contact_landed = vel_landed & (contact > 0.5)
+        self._landed = pos_ok & contact_landed
+
+        # --- Crashed conditions ---
+        # tilt_thresh = (1.0 - torch.cos(torch.deg2rad(torch.tensor(15.0, device=self.device)))) / 2.0
+        # xy_sq = self._robot.data.root_quat_w[..., 1]**2 + self._robot.data.root_quat_w[..., 2]**2
+        # tilted = (xy_sq > tilt_thresh) & alt_ok
+
+        hard_landing = (contact > 0) & (~vel_landed)
+        self._crashed = hard_landing # | tilted
 
         # --- Missed conditions ---
-        # self._missed = algn_ok & contact_landed & (~pos_ok) 
+        self._missed = contact_landed & (~pos_ok) 
 
-        # shaping = (self.cfg.pos_reward_scale * torch.norm(self._pos, dim=1) 
-                    # + self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1)
+        pos_reward = self.cfg.pos_reward_scale * torch.norm(self._pos, dim=1)
+        vel_reward = self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1)
+        shaping = pos_reward + vel_reward # - 0 * np.linalg.norm(self._current_action - self._prev_action)**2
 
-        
-        ang_reward = self.cfg.ang_reward_scale * self.alignment/(torch.pi)
-        # ang_reward = self.cfg.ang_reward_scale * torch.norm(euler_angles, dim=1)
-        ang_vel_reward = self.cfg.ang_vel_reward_scale * torch.norm(self._ang_vel, dim=1)
-        # shaping = ang_reward + ang_vel_reward
+        if self.cfg.prev_shaping is not None:
+            shaping_term = shaping - self.cfg.prev_shaping
+            reward += shaping_term
+        else:
+            shaping_term = torch.zeros_like(reward)
+        self.cfg.prev_shaping = shaping
 
-        # if self.cfg.prev_shaping is not None:
-        #     reward = shaping - self.cfg.prev_shaping
-        # self.cfg.prev_shaping = shaping
+        reward += self.cfg.spower_reward_scale * self._spower + self.cfg.mpower_reward_scale * self._mpower 
+        reward += 1 * torch.where(self._lin_vel[:,2] > 0, -torch.ones_like(self._lin_vel[:,2]), torch.zeros_like(self._lin_vel[:,2]))
 
-        # reward += (self.cfg.spower_reward_scale * self._spower + 
-        #             self.cfg.mpower_reward_scale * self._mpower + 
-        #             self.cfg.tpower_reward_scale * self._tpower)
-        norm_actions = torch.norm(self._actions, dim=1)/self.actionHigh.max()
-        # reward += (self.cfg.tpower_reward_scale * self._tpower)
-        du = torch.norm(self.d_action, dim=1)/self.actionHigh.max()
-        self.omega = torch.norm(self._ang_vel, dim=1)
-        # reward += self.cfg.du_reward_scale * du
+        mask_contact = (~self._crashed) & (contact > 0.5)
+        reward[mask_contact] += self.cfg.contact_reward_scale * contact[mask_contact]
 
-        reward = 2*torch.exp(-self.alignment/(0.04*2*torch.pi)) - 0.3*norm_actions - 0.3*du
-        # reward = -self.alignment - 0.01*omega - 0.03*norm_actions # - 0.003*du**2
-        reward[(self._quat[:,0] > self._quat_prev[:,0])] -= 1
-        # print(f"change in angle: {self._quat[:,0] - self._quat_prev[:,0][0]:.4f}")
-        self._quat_prev = self._quat.clone()
-        # reward += 100 * torch.where(self._lin_vel[:,2] > 0, -torch.ones_like(self._lin_vel[:,2]), torch.zeros_like(self._lin_vel[:,2])) # penalty for positive z velocity
 
-        # mask_contact = (~self._crashed) & (contact > 0.5)
-        # reward[mask_contact] += self.cfg.contact_reward_scale * contact[mask_contact]
+        # --- Penalties and Bonuses ---
+        reward[angle_delta > np.deg2rad(30)] -= 50
+        reward[~self._aligned & (self.omega > np.deg2rad(0.5)) & (self._landed | self._crashed | self._missed)] = -500
+        # reward[~self._aligned & self._missed] = 0
+        reward[~self._aligned & self._landed] = -30
+        reward[self._landed] = 100
+        reward[~self._aligned & self._crashed] = -40
+        reward[self._aligned] += 100
+        reward[self.aligned_history.all(dim=1) & self._landed] = 500
 
-        # for i in range(self.num_envs):
-        #     # if mask_contact[i]:
-        #     #     print(f"Env {i} Contact with Position {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}, Velocity {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f} at time {self.episode_length_buf[i]*self.sim.cfg.dt:.2f}s")
-        #     # if self._hovering[i]:
-        #         # reward[i] -= 1*torch.norm(self._actions[i,:])
-        #     #     print(f"Env {i} Hovering with Position {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}, Velocity {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f} at time {self.episode_length_buf[i]*self.sim.cfg.dt:.2f}s")
-        #     if self._landed[i]:
-        #         print(f"""Env {i} Landed with:
-        #             Position          {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
-        #             Velocity          {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
-        #             Euler Angles      {torch.rad2deg(roll[i]):.2f}, {torch.rad2deg(pitch[i]):.2f}, {torch.rad2deg(yaw[i]):.2f}
-        #             Angular Velocity  {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
-        #             at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
-        #     elif self._crashed[i]:
-        #         print(f"""Env {i} Crashed with:
-        #             Position          {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
-        #             Velocity          {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
-        #             Euler Angles      {torch.rad2deg(roll[i]):.2f}, {torch.rad2deg(pitch[i]):.2f}, {torch.rad2deg(yaw[i]):.2f}
-        #             Angular Velocity  {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
-        #             at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
-        #     elif self._missed[i]:
-        #         print(f"""Env {i} Missed with:
-        #             Position          {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
-        #             Velocity          {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
-        #             Euler Angles      {torch.rad2deg(roll[i]):.2f}, {torch.rad2deg(pitch[i]):.2f}, {torch.rad2deg(yaw[i]):.2f}
-        #             Angular Velocity  {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
-        #             at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
-
-        # reward[self._aligned] = 3000
-        # reward[algn_ok] = 1500
-        # reward[self._bad_align] = -4000
-        # reward -= 0.5*torch.norm(self._actions, dim=1)
-        reward[(self.omega > np.deg2rad(25))] = -1000
-        reward[~algn_ok & (self.omega > np.deg2rad(0.5))  & (self.episode_length_buf > 100)] = -500
-        reward[self._too_slow] = 0
-        reward[self._aligned] += 50
-        reward[self.aligned_history.all(dim=1)] = 500
-        # reward += 3000.0 * torch.exp(-2000 * torch.abs(alignment-8.98e-2)) 
+        for i in range(self.num_envs):
+            roll, pitch, yaw = math.euler_xyz_from_quat(self._quat)
+            if self._hovering[i]:
+                reward[i] -= 0.1*torch.norm(self._actions[i,0:3])
+                print(f"Env {i} Hovering")
+            if self._landed[i]:
+                print(f"""Env {i} Landed with:
+                    Position [m]             {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
+                    Velocity [m/s]           {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
+                    Euler Angles [deg]       {torch.rad2deg(roll[i]):.2f}, {torch.rad2deg(pitch[i]):.2f}, {torch.rad2deg(yaw[i]):.2f}
+                    Alignment [deg]          {torch.rad2deg(self.alignment[i]):.4f}
+                    Angular Velocity [rad/s] {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
+                    Contact Time             {contact[i]*self.step_dt:.2f}s
+                    at time                  {self.episode_length_buf[i] * self.step_dt:.2f}s""")
+            elif self._crashed[i]:
+                print(f"""Env {i} Crashed with:
+                    Position [m]             {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
+                    Velocity [m/s]           {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
+                    Euler Angles [deg]       {torch.rad2deg(roll[i]):.2f}, {torch.rad2deg(pitch[i]):.2f}, {torch.rad2deg(yaw[i]):.2f}
+                    Alignment [deg]          {torch.rad2deg(self.alignment[i]):.4f}
+                    Angular Velocity [rad/s] {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
+                    Contact Time             {contact[i]*self.step_dt:.2f}s
+                    at time                  {self.episode_length_buf[i] * self.step_dt:.2f}s""")
+            elif self._missed[i]:
+                print(f"""Env {i} Missed with:
+                    Position [m]             {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
+                    Velocity [m/s]           {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
+                    Euler Angles [deg]       {torch.rad2deg(roll[i]):.2f}, {torch.rad2deg(pitch[i]):.2f}, {torch.rad2deg(yaw[i]):.2f}
+                    Alignment [deg]          {torch.rad2deg(self.alignment[i]):.4f}
+                    Angular Velocity [rad/s] {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
+                    Contact Time             {contact[i]*self.step_dt:.2f}s
+                    at time                  {self.episode_length_buf[i] * self.step_dt:.2f}s""")
 
         rewards = {"reward": reward}
 
         # Logging
         for key, value in rewards.items():
             self._episode_sums[key] += value
+
+
+        with torch.no_grad():
+            # Attitude & control effort
+            attitude_term = 20 * torch.exp(-self.alignment / (0.04))
+            action_penalty = -0.2 * norm_actions
+            ang_vel_penalty = -0.05 * (self._ang_vel.abs().sum(dim=1))
+            neg_z_vel_penalty = torch.where(self._lin_vel[:,2] > 0, -torch.ones_like(self._lin_vel[:,2]), torch.zeros_like(self._lin_vel[:,2]))
+
+            # Translational components
+            # pos_term = self.cfg.pos_reward_scale * torch.norm(self._pos, dim=1)
+            # vel_term = self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1)
+
+            # Power
+            spower_term = self.cfg.spower_reward_scale * self._spower
+            mpower_term = self.cfg.mpower_reward_scale * self._mpower
+
+            contact_bonus = self.cfg.contact_reward_scale * contact[mask_contact]
+
+
+            # Bonus/Penalty events
+            self.landed_hist += (self._landed).sum().item()
+            self.aligned_hist += (self._aligned).sum().item()
+            self.crashed_hist += (self._crashed).sum().item()
+            self.missed_hist += (self._missed).sum().item()
+
+            # Summary statistics (mean/std)
+            print(f"\n=== Reward Diagnostics ===")
+            print(f"Attitude term:      mean={attitude_term.mean():.3f}, std={attitude_term.std():.3f}")
+            print(f"Action penalty:     mean={action_penalty.mean():.3f}, std={action_penalty.std():.3f}")
+            print(f"Angular penalty:    mean={ang_vel_penalty.mean():.3f}, std={ang_vel_penalty.std():.3f}")
+            print(f"Neg Z Vel penalty:  mean={neg_z_vel_penalty.mean():.3f}, std={neg_z_vel_penalty.std():.3f}")
+            print(f"Contact bonus:      mean={contact_bonus.mean():.3f}, std={contact_bonus.std():.3f}")
+            # print(f"Pos term:           mean={pos_term.mean():.3f}, std={pos_term.std():.3f}")
+            # print(f"Vel term:           mean={vel_term.mean():.3f}, std={vel_term.std():.3f}")
+            print(f"Shaping term:       mean={shaping_term.mean():.3f}, std={shaping_term.std():.3f}")
+            print(f"spower term:        mean={spower_term.mean():.3f}, std={spower_term.std():.3f}")
+            print(f"mpower term:        mean={mpower_term.mean():.3f}, std={mpower_term.std():.3f}")
+            print(f"--- Event counts ---")
+            print(f"Landed: {self.landed_hist}, Aligned: {self.aligned_hist}, Crashed: {self.crashed_hist}, Missed: {self.missed_hist}")
+            print(f"Total reward mean:  {reward.mean():.3f}, std={reward.std():.3f}")
+            print("==========================\n")
+
+
+
         return reward
 
-
-
-
-    # def _get_rewards(self) -> torch.Tensor:
-    #     device = self.device
-    #     eps = 1e-8
-
-    #     contact = self._contact_sensor.data.current_contact_time.squeeze(1)  # (N,)
-
-    #     # boolean flags for power usage (0/1)
-    #     mpower = (self._actions[:, 2] != 0).to(dtype=torch.float32, device=device)
-    #     spower = (self._actions[:, :2] != 0).any(dim=1).to(dtype=torch.float32, device=device)
-    #     tpower = (self._actions[:, 3:] != 0).any(dim=1).to(dtype=torch.float32, device=device)
-
-    #     N = self.num_envs
-    #     reward = torch.zeros(N, device=device)
-
-    #     # Euler for logging only (keep as-is)
-    #     roll, pitch, yaw = math.euler_xyz_from_quat(self._quat)
-
-    #     # Desired quaternion (no rotation)
-    #     q_des = torch.tensor([1.0, 0.0, 0.0, 0.0], dtype=torch.float32, device=device).expand(N, -1)
-    #     dot = torch.sum(self._quat * q_des, dim=-1)
-    #     dot = torch.clamp(torch.abs(dot), -1.0 + eps, 1.0 - eps)
-    #     alignment = 2.0 * torch.acos(dot)   # angle in radians, shape (N,)
-
-    #     # --- logical condition masks (tunable thresholds in cfg) ---
-    #     # Use sensible thresholds (radians)
-    #     algn_ok = alignment < self.cfg.attitude_tol_rad     # e.g., 0.15 rad (~8.6deg)
-    #     alt_ok = self._altitude <= self.cfg.alt_tol         # e.g., 2.0 m
-    #     vel_ok = torch.norm(self._lin_vel, dim=1) < self.cfg.vlim
-    #     pos_ok = torch.norm(self._pos[:, :2], dim=1) < self.cfg.rlim
-    #     no_contact = contact <= 0.1
-
-    #     hovering = algn_ok & alt_ok & vel_ok & pos_ok & no_contact
-
-    #     # landed / crashed / missed
-    #     vel_landed = torch.abs(self._lin_vel[:, 2]) < self.cfg.vlim
-    #     contact_landed = (vel_landed) & (contact > 0.5)
-    #     self._landed = algn_ok & pos_ok & contact_landed
-
-    #     hard_landing = (contact > 0) & (~vel_landed)
-    #     tilted_landing = (~algn_ok) & alt_ok
-    #     self._crashed = hard_landing | tilted_landing
-
-    #     self._bad_align = (alignment > self.cfg.bad_align_rad) & (self._altitude < 5.0)
-    #     self._missed = algn_ok & contact_landed & (~pos_ok)
-
-    #     # --- shaping potential (positive = worse). We will do reward = prev_shaping - shaping ---
-    #     pos_norm = torch.norm(self._pos, dim=1)
-    #     lin_vel_norm = torch.norm(self._lin_vel, dim=1)
-    #     ang_vel_norm = torch.norm(self._ang_vel, dim=1)
-
-    #     shaping = (
-    #         self.cfg.pos_reward_scale * pos_norm
-    #         + self.cfg.lin_vel_reward_scale * lin_vel_norm
-    #         + self.cfg.ang_reward_scale * (alignment ** 2)
-    #         + self.cfg.ang_vel_reward_scale * ang_vel_norm
-    #     )
-
-    #     # initialize prev_shaping if None (per-env)
-    #     if getattr(self.cfg, "prev_shaping", None) is None:
-    #         self.cfg.prev_shaping = torch.zeros_like(shaping)
-
-    #     # reward from potential difference: positive when shaping decreases (improvement)
-    #     reward += (self.cfg.prev_shaping - shaping)
-    #     self.cfg.prev_shaping = shaping.detach()
-
-    #     # --- control / power penalties (negative) ---
-    #     # control magnitude penalty (vectorized)
-    #     action_mag = torch.norm(self._actions, dim=1)  # or use per-component normalized sum if preferred
-    #     reward -= self.cfg.ctrl_cost_scale * action_mag
-
-    #     # small penalty for turning on thrusters (binary), treat as penalties
-    #     reward -= (self.cfg.spower_penalty_scale * spower
-    #             + self.cfg.mpower_penalty_scale * mpower
-    #             + self.cfg.tpower_penalty_scale * tpower)
-
-    #     # penalty for upward vertical velocity (if you want)
-    #     # we only penalize upward velocity when above target altitude or to discourage upward after approaching pad
-    #     vz = self._lin_vel[:, 2]
-    #     reward += torch.where(vz > 0, -self.cfg.up_vel_penalty, torch.zeros_like(vz))
-
-    #     # contact shaping: mild positive for gentle contact if not crashed
-    #     mask_contact = (~self._crashed) & (contact > 0.5)
-    #     reward[mask_contact] += self.cfg.contact_reward_scale * contact[mask_contact]
-
-    #     # hovering control penalty (encourage less thrust when hovering)
-    #     if hovering.any():
-    #         idx = hovering.nonzero(as_tuple=False).squeeze(-1)
-    #         reward[idx] -= self.cfg.hover_ctrl_penalty * torch.norm(self._actions[idx, :], dim=1)
-
-    #     # Terminal sparse rewards (moderate magnitudes)
-    #     # Add once (not overwrite) so shaping still matters
-    #     R_success = self.cfg.success_reward  # e.g., +50.0
-    #     R_crash = -abs(self.cfg.crash_penalty)  # e.g., -20.0
-    #     R_bad_align = -abs(self.cfg.bad_align_penalty)  # e.g., -40.0
-
-    #     reward = reward.clone()
-    #     reward[self._landed] += R_success
-    #     reward[self._crashed] += R_crash
-    #     reward[self._missed] += 0.0
-    #     reward[self._bad_align] += R_bad_align
-
-    #     # Clip reward to reasonable range (helps Dreamer)
-    #     reward = torch.clamp(reward, -self.cfg.reward_clip, self.cfg.reward_clip)
-
-    #     # Logging sums
-    #     rewards = {"reward": reward}
-
-    #     # Logging
-    #     for key, value in rewards.items():
-    #         self._episode_sums[key] += value
-    #     return reward
-
-
-
-
-
-
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        self.time_out = (self.episode_length_buf >= self.max_episode_length - 1) | self._too_slow
+        self.time_out = (self.episode_length_buf >= self.max_episode_length - 1)
 
         self.out_of_bounds_x = torch.logical_or(self._robot.data.root_pos_w[:,0] > 40, self._robot.data.root_pos_w[:,0] < -40)
         self.out_of_bounds_y = torch.logical_or(self._robot.data.root_pos_w[:,1] > 40, self._robot.data.root_pos_w[:,1] < -40)
         self.out_of_bounds = torch.logical_or(self.out_of_bounds_x, self.out_of_bounds_y)
-    
-        # self.terminated = torch.logical_or(self.crashed, self.stabilized)
-        # self.terminated = torch.logical_or(self.terminated, self._landed)
 
-        self.terminated = self.aligned_history.all(dim=1)
-        # self.terminated = torch.logical_or(self.terminated, (self.omega > np.deg2rad(25)))
-
-        # if self.terminated.sum() < 8 and self.terminated.sum() >= 1:
-        #     print("stop")
-        #     idx = self.terminated.nonzero(as_tuple=False).squeeze(-1)
-        #     roll, pitch, yaw = math.euler_xyz_from_quat(self._quat)
-        #     for i in idx:
-        #         print(f"""Env {i} Terminated with:
-        #             Position          {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
-        #             Velocity          {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
-        #             Euler Angles      {torch.rad2deg(roll[i]):.2f}, {torch.rad2deg(pitch[i]):.2f}, {torch.rad2deg(yaw[i]):.2f}
-        #             Angular Velocity  {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
-        #             at time           {self.episode_length_buf[i] * self.step_dt:.2f}s""")
-
+        self.terminated = torch.logical_or(self._crashed, self._missed)
+        self.terminated = torch.logical_or(self.terminated, self._landed)
+        self.terminated = torch.logical_or(self.terminated, self.out_of_bounds)
 
         return self.terminated, self.time_out
 
@@ -780,7 +557,7 @@ class Lander6DOFEnv(DirectRLEnv):
         super()._reset_idx(env_ids)
         if len(env_ids) == self.num_envs and self.num_envs > 1:
             # Spread out the resets to avoid spikes in training when many environments reset at a similar time
-            self.episode_length_buf = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length)-870)
+            self.episode_length_buf = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length))
             
         # self.episode_init[env_ids] = self.episode_length_buf[env_ids]
         # if len(env_ids) == self.num_envs:
@@ -796,15 +573,12 @@ class Lander6DOFEnv(DirectRLEnv):
         # joint_pos = self._robot.data.default_joint_pos[env_ids]
         # joint_vel = self._robot.data.default_joint_vel[env_ids]
         init_euler = torch.zeros(len(env_ids), 3, device=self.device).uniform_(-10*np.pi/180, 10*np.pi/180) # roll, pitch, yawv +- 5 degrees
-        # init_euler[:,2] = 0
-        # init_euler[:,1] = 0
-        # init_quat = math.quat_from_euler_xyz(init_euler[:,0], init_euler[:,1], init_euler[:,2])  
         default_root_state = self._robot.data.default_root_state[env_ids]
-        # default_root_state[:, :2] += torch.zeros_like(default_root_state[:, :2]).uniform_(-20,20)#(-20.0, 20.0) # x and y position
+        default_root_state[:, :2] += torch.zeros_like(default_root_state[:, :2]).uniform_(-20,20)#(-20.0, 20.0) # x and y position
         default_root_state[:, 2] += torch.zeros_like(default_root_state[:, 2]).uniform_(60,80)#(0.0, 20.0) # z position
         default_root_state[:, 3:7] = math.quat_from_euler_xyz(init_euler[:,0], init_euler[:,1], init_euler[:,2])  # random orientation
-        # default_root_state[:, 7:9] += torch.zeros_like(default_root_state[:, 7:9]).uniform_(-5.0, 5.0) # x and y linear velocity
-        # default_root_state[:, 9] += torch.zeros_like(default_root_state[:, 9]).uniform_(-30.0, -20.0) # z linear velocity
+        default_root_state[:, 7:9] += torch.zeros_like(default_root_state[:, 7:9]).uniform_(-5.0, 5.0) # x and y linear velocity
+        default_root_state[:, 9] += torch.zeros_like(default_root_state[:, 9]).uniform_(-30.0, -20.0) # z linear velocity
         default_root_state[:, 10:13] += torch.zeros_like(default_root_state[:, 10:13]).uniform_(-0.035, 0.035) # angular velocity
         default_root_state[:, :3] += self._terrain.env_origins[env_ids]
         self._robot.write_root_pose_to_sim(default_root_state[:, :7], env_ids)
