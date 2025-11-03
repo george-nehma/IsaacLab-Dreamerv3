@@ -578,14 +578,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
         if done[0]:
             break
     
-    if len(state_hist) > 1:
-        state_traj = np.stack(state_hist)
     actions = np.stack(control_hist)
     rewards = np.stack(reward_hist)
-
-    timesteps = np.arange(state_traj.shape[0])
-
-    plot_trajectory(state_traj, actions, rewards, timesteps, dt=dt, save_prefix="traj")
+    
+    if len(state_hist) > 1:
+        state_traj = np.stack(state_hist)
+        timesteps = np.arange(state_traj.shape[0])
+        plot_trajectory(state_traj, actions, rewards, timesteps, dt=dt, save_prefix="traj")
  
     # close the simulator
     test_env.close()

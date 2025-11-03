@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import math
 import torch
+import numpy as np
+import gymnasium as gym
 from collections.abc import Sequence
 
 from isaaclab_assets.robots.cartpole import CARTPOLE_CFG
@@ -41,7 +43,7 @@ class CartpoleRGBCameraEnvCfg(DirectRLEnvCfg):
     # camera
     tiled_camera: TiledCameraCfg = TiledCameraCfg(
         prim_path="/World/envs/env_.*/Camera",
-        offset=TiledCameraCfg.OffsetCfg(pos=(-5.0, 0.0, 2.0), rot=(1.0, 0.0, 0.0, 0.0), convention="world"),
+        offset=TiledCameraCfg.OffsetCfg(pos=(-3.0, 0.0, 2.0), rot=(1.0, 0.0, 0.0, 0.0), convention="world"),
         data_types=["rgb"],
         spawn=sim_utils.PinholeCameraCfg(
             focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 20.0)
@@ -104,6 +106,9 @@ class CartpoleCameraEnv(DirectRLEnv):
         self._cart_dof_idx, _ = self._cartpole.find_joints(self.cfg.cart_dof_name)
         self._pole_dof_idx, _ = self._cartpole.find_joints(self.cfg.pole_dof_name)
         self.action_scale = self.cfg.action_scale
+        # self.actionHigh = np.full(self.action_space.shape, self.cfg.action_scale, dtype=np.float32) # max thrust of RCS thrusters [N] and moment [Nm]
+        # self.actionLow = np.full(self.action_space.shape, -self.cfg.action_scale, dtype=np.float32) # min thrust of RCS thrusters [N] and moment [Nm]
+        # self.action_space = gym.spaces.Box(dtype=np.float32, shape=self.actionHigh.shape ,low=self.actionLow, high=self.actionHigh)
 
         self.joint_pos = self._cartpole.data.joint_pos
         self.joint_vel = self._cartpole.data.joint_vel
