@@ -165,8 +165,8 @@ class Lander6DOFEnvCfg(DirectRLEnvCfg):
     observation_space = state_space # q0, q1, q2, q3, pos x, pos y, pos z, vel x, vel y, vel z, om_x, om_y, om_z, contact bool,
 
     # reward scales
-    lin_vel_reward_scale = -1
-    pos_reward_scale = -1
+    lin_vel_reward_scale = -0.7
+    pos_reward_scale = -0.7
     du_reward_scale = -0.05
     mpower_reward_scale = -0.006
     spower_reward_scale = -0.003
@@ -359,7 +359,7 @@ class Lander6DOFEnv(DirectRLEnv):
         e_qv = q_conj[:, 0:1] * q_des[:, 1:] + q_des[:, 0:1] * q_conj[:, 1:] + torch.cross(q_conj[:, 1:], q_des[:, 1:], dim=1)
         self.alignment = 2.0 * torch.atan2(torch.norm(e_qv, dim=1), torch.abs(e_q0.squeeze(1)))
         self.alignment = torch.clamp(self.alignment, 0.0, torch.pi)
-        self._aligned = self.alignment < 1e-2 #4.5e-4
+        self._aligned = self.alignment < 1e-3 #4.5e-4
         self.omega = torch.norm(self._ang_vel, dim=1)
         angle_delta = torch.abs(self.alignment - self._alignment_prev)
         self._alignment_prev = self.alignment.clone()
@@ -372,7 +372,7 @@ class Lander6DOFEnv(DirectRLEnv):
         # du = torch.norm(self.d_action/self.actionHigh, dim=1)
 
         # --- Attitude reward ---
-        reward = 20*torch.exp(-self.alignment/(0.04))- 0.2*norm_actions # - 0.3*du
+        reward = (1/10)-1/(10*torch.exp(-self.alignment/(0.4))) - 0.3*norm_actions # - 0.3*du
         reward -= 0.05*self._ang_vel[:,0].abs()
         reward -= 0.05*self._ang_vel[:,1].abs()
         reward -= 0.05*self._ang_vel[:,2].abs()
@@ -426,7 +426,7 @@ class Lander6DOFEnv(DirectRLEnv):
         reward[~self._aligned & (self.omega > np.deg2rad(0.5)) & (self._landed | self._crashed | self._missed)] = -500
         # reward[~self._aligned & self._missed] = 0
         reward[~self._aligned & self._landed] = -30
-        reward[self._landed] = 100
+        reward[self._landed] += 200
         reward[~self._aligned & self._crashed] = -40
         reward[self._aligned] += 100
         reward[self.aligned_history.all(dim=1) & self._landed] = 500
@@ -434,14 +434,14 @@ class Lander6DOFEnv(DirectRLEnv):
         for i in range(self.num_envs):
             roll, pitch, yaw = math.euler_xyz_from_quat(self._quat)
             if self._hovering[i]:
-                reward[i] -= 0.1*torch.norm(self._actions[i,0:3])
+                reward[i] -= 0.01*torch.norm(self._actions[i])
                 print(f"Env {i} Hovering")
             if self._landed[i]:
                 print(f"""Env {i} Landed with:
                     Position [m]             {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
                     Velocity [m/s]           {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
                     Euler Angles [deg]       {torch.rad2deg(roll[i]):.2f}, {torch.rad2deg(pitch[i]):.2f}, {torch.rad2deg(yaw[i]):.2f}
-                    Alignment [deg]          {torch.rad2deg(self.alignment[i]):.4f}
+                    Alignment [deg]          {self.alignment[i]:.4f}
                     Angular Velocity [rad/s] {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
                     Contact Time             {contact[i]*self.step_dt:.2f}s
                     at time                  {self.episode_length_buf[i] * self.step_dt:.2f}s""")
@@ -450,7 +450,7 @@ class Lander6DOFEnv(DirectRLEnv):
                     Position [m]             {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
                     Velocity [m/s]           {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
                     Euler Angles [deg]       {torch.rad2deg(roll[i]):.2f}, {torch.rad2deg(pitch[i]):.2f}, {torch.rad2deg(yaw[i]):.2f}
-                    Alignment [deg]          {torch.rad2deg(self.alignment[i]):.4f}
+                    Alignment [deg]          {self.alignment[i]:.4f}
                     Angular Velocity [rad/s] {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
                     Contact Time             {contact[i]*self.step_dt:.2f}s
                     at time                  {self.episode_length_buf[i] * self.step_dt:.2f}s""")
@@ -459,7 +459,7 @@ class Lander6DOFEnv(DirectRLEnv):
                     Position [m]             {self._pos[i][0]:.2f}, {self._pos[i][1]:.2f}, {self._pos[i][2]:.2f}
                     Velocity [m/s]           {self._lin_vel[i][0]:.2f}, {self._lin_vel[i][1]:.2f}, {self._lin_vel[i][2]:.2f}
                     Euler Angles [deg]       {torch.rad2deg(roll[i]):.2f}, {torch.rad2deg(pitch[i]):.2f}, {torch.rad2deg(yaw[i]):.2f}
-                    Alignment [deg]          {torch.rad2deg(self.alignment[i]):.4f}
+                    Alignment [deg]          {self.alignment[i]:.4f}
                     Angular Velocity [rad/s] {self._ang_vel[i][0]:.2f}, {self._ang_vel[i][1]:.2f}, {self._ang_vel[i][2]:.2f}
                     Contact Time             {contact[i]*self.step_dt:.2f}s
                     at time                  {self.episode_length_buf[i] * self.step_dt:.2f}s""")
@@ -470,47 +470,47 @@ class Lander6DOFEnv(DirectRLEnv):
         for key, value in rewards.items():
             self._episode_sums[key] += value
 
+        if self.num_envs == 1:
+            with torch.no_grad():
+                # Attitude & control effort
+                attitude_term = (1/10)-1/(10 * torch.exp(-self.alignment / (0.04)))
+                action_penalty = -0.2 * norm_actions
+                ang_vel_penalty = -0.05 * (self._ang_vel.abs().sum(dim=1))
+                neg_z_vel_penalty = torch.where(self._lin_vel[:,2] > 0, -torch.ones_like(self._lin_vel[:,2]), torch.zeros_like(self._lin_vel[:,2]))
 
-        with torch.no_grad():
-            # Attitude & control effort
-            attitude_term = 20 * torch.exp(-self.alignment / (0.04))
-            action_penalty = -0.2 * norm_actions
-            ang_vel_penalty = -0.05 * (self._ang_vel.abs().sum(dim=1))
-            neg_z_vel_penalty = torch.where(self._lin_vel[:,2] > 0, -torch.ones_like(self._lin_vel[:,2]), torch.zeros_like(self._lin_vel[:,2]))
+                # Translational components
+                # pos_term = self.cfg.pos_reward_scale * torch.norm(self._pos, dim=1)
+                # vel_term = self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1)
 
-            # Translational components
-            # pos_term = self.cfg.pos_reward_scale * torch.norm(self._pos, dim=1)
-            # vel_term = self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1)
+                # Power
+                spower_term = self.cfg.spower_reward_scale * self._spower
+                mpower_term = self.cfg.mpower_reward_scale * self._mpower
 
-            # Power
-            spower_term = self.cfg.spower_reward_scale * self._spower
-            mpower_term = self.cfg.mpower_reward_scale * self._mpower
-
-            contact_bonus = self.cfg.contact_reward_scale * contact[mask_contact]
+                contact_bonus = self.cfg.contact_reward_scale * contact[mask_contact]
 
 
-            # Bonus/Penalty events
-            self.landed_hist += (self._landed).sum().item()
-            self.aligned_hist += (self._aligned).sum().item()
-            self.crashed_hist += (self._crashed).sum().item()
-            self.missed_hist += (self._missed).sum().item()
+                # Bonus/Penalty events
+                self.landed_hist += (self._landed).sum().item()
+                self.aligned_hist += (self._aligned).sum().item()
+                self.crashed_hist += (self._crashed).sum().item()
+                self.missed_hist += (self._missed).sum().item()
 
-            # Summary statistics (mean/std)
-            print(f"\n=== Reward Diagnostics ===")
-            print(f"Attitude term:      mean={attitude_term.mean():.3f}, std={attitude_term.std():.3f}")
-            print(f"Action penalty:     mean={action_penalty.mean():.3f}, std={action_penalty.std():.3f}")
-            print(f"Angular penalty:    mean={ang_vel_penalty.mean():.3f}, std={ang_vel_penalty.std():.3f}")
-            print(f"Neg Z Vel penalty:  mean={neg_z_vel_penalty.mean():.3f}, std={neg_z_vel_penalty.std():.3f}")
-            print(f"Contact bonus:      mean={contact_bonus.mean():.3f}, std={contact_bonus.std():.3f}")
-            # print(f"Pos term:           mean={pos_term.mean():.3f}, std={pos_term.std():.3f}")
-            # print(f"Vel term:           mean={vel_term.mean():.3f}, std={vel_term.std():.3f}")
-            print(f"Shaping term:       mean={shaping_term.mean():.3f}, std={shaping_term.std():.3f}")
-            print(f"spower term:        mean={spower_term.mean():.3f}, std={spower_term.std():.3f}")
-            print(f"mpower term:        mean={mpower_term.mean():.3f}, std={mpower_term.std():.3f}")
-            print(f"--- Event counts ---")
-            print(f"Landed: {self.landed_hist}, Aligned: {self.aligned_hist}, Crashed: {self.crashed_hist}, Missed: {self.missed_hist}")
-            print(f"Total reward mean:  {reward.mean():.3f}, std={reward.std():.3f}")
-            print("==========================\n")
+                # Summary statistics (mean/std)
+                print(f"\n=== Reward Diagnostics ===")
+                print(f"Attitude term:      mean={attitude_term.mean():.3f}, std={attitude_term.std():.3f}")
+                print(f"Action penalty:     mean={action_penalty.mean():.3f}, std={action_penalty.std():.3f}")
+                print(f"Angular penalty:    mean={ang_vel_penalty.mean():.3f}, std={ang_vel_penalty.std():.3f}")
+                print(f"Neg Z Vel penalty:  mean={neg_z_vel_penalty.mean():.3f}, std={neg_z_vel_penalty.std():.3f}")
+                print(f"Contact bonus:      mean={contact_bonus.mean():.3f}, std={contact_bonus.std():.3f}")
+                # print(f"Pos term:           mean={pos_term.mean():.3f}, std={pos_term.std():.3f}")
+                # print(f"Vel term:           mean={vel_term.mean():.3f}, std={vel_term.std():.3f}")
+                print(f"Shaping term:       mean={shaping_term.mean():.3f}, std={shaping_term.std():.3f}")
+                print(f"spower term:        mean={spower_term.mean():.3f}, std={spower_term.std():.3f}")
+                print(f"mpower term:        mean={mpower_term.mean():.3f}, std={mpower_term.std():.3f}")
+                print(f"--- Event counts ---")
+                print(f"Landed: {self.landed_hist}, Aligned: {self.aligned_hist}, Crashed: {self.crashed_hist}, Missed: {self.missed_hist}")
+                print(f"Total reward mean:  {reward.mean():.3f}, std={reward.std():.3f}")
+                print("==========================\n")
 
 
 
