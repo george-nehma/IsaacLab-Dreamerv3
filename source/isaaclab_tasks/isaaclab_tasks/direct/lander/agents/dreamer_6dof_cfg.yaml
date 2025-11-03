@@ -7,7 +7,7 @@ defaults:
   offline_evaldir: ''
   seed: 0
   deterministic_run: False
-  steps: 3e5
+  steps: 4e5
   parallel: False
   eval_every: 5e3
   eval_episode_num: 10
@@ -62,7 +62,7 @@ defaults:
   initial: 'learned'
 
   # Training
-  batch_size: 4
+  batch_size: 8
   batch_length: 256
   train_ratio: 256
   envs: 8
