@@ -165,8 +165,8 @@ class Lander6DOFEnvCfg(DirectRLEnvCfg):
     observation_space = state_space # q0, q1, q2, q3, pos x, pos y, pos z, vel x, vel y, vel z, om_x, om_y, om_z, contact bool,
 
     # reward scales
-    lin_vel_reward_scale = -0.7
-    pos_reward_scale = -0.7
+    lin_vel_reward_scale = -1.5
+    pos_reward_scale = -1.5
     du_reward_scale = -0.05
     mpower_reward_scale = -0.006
     spower_reward_scale = -0.003
@@ -359,7 +359,7 @@ class Lander6DOFEnv(DirectRLEnv):
         e_qv = q_conj[:, 0:1] * q_des[:, 1:] + q_des[:, 0:1] * q_conj[:, 1:] + torch.cross(q_conj[:, 1:], q_des[:, 1:], dim=1)
         self.alignment = 2.0 * torch.atan2(torch.norm(e_qv, dim=1), torch.abs(e_q0.squeeze(1)))
         self.alignment = torch.clamp(self.alignment, 0.0, torch.pi)
-        self._aligned = self.alignment < 1e-3 #4.5e-4
+        self._aligned = self.alignment < 5.7e-2 #4.5e-4
         self.omega = torch.norm(self._ang_vel, dim=1)
         angle_delta = torch.abs(self.alignment - self._alignment_prev)
         self._alignment_prev = self.alignment.clone()
@@ -428,13 +428,13 @@ class Lander6DOFEnv(DirectRLEnv):
         reward[~self._aligned & self._landed] = -30
         reward[self._landed] += 200
         reward[~self._aligned & self._crashed] = -40
-        reward[self._aligned] += 100
+        reward[self._aligned] += 0.5
         reward[self.aligned_history.all(dim=1) & self._landed] = 500
 
         for i in range(self.num_envs):
             roll, pitch, yaw = math.euler_xyz_from_quat(self._quat)
             if self._hovering[i]:
-                reward[i] -= 0.01*torch.norm(self._actions[i])
+                reward[i] -= 0.05*torch.norm(self._actions[i])
                 print(f"Env {i} Hovering")
             if self._landed[i]:
                 print(f"""Env {i} Landed with:
