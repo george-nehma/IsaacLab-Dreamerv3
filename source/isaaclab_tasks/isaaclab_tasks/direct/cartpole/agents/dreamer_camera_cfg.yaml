@@ -30,22 +30,22 @@ defaults:
   reward_EMA: True
 
   # Model
-  dyn_hidden: 512
-  dyn_deter: 512
+  dyn_hidden: 384
+  dyn_deter: 3072
   dyn_stoch: 32
-  dyn_discrete: 32
+  dyn_discrete: 24
   dyn_rec_depth: 1
   dyn_mean_act: 'none'
   dyn_std_act: 'sigmoid2'
   dyn_min_std: 0.1
   grad_heads: ['decoder', 'reward', 'cont']
-  units: 512
+  units: 384
   act: 'SiLU'
   norm: True
   encoder:
-    {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 5, mlp_units: 1024, symlog_inputs: True}
+    {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 24, kernel_size: 4, minres: 4, mlp_layers: 5, mlp_units: 1024, symlog_inputs: True}
   decoder:
-    {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 5, mlp_units: 1024, cnn_sigmoid: False, image_dist: mse, vector_dist: symlog_mse, outscale: 1.0}
+    {mlp_keys: '$^', cnn_keys: 'image', act: 'SiLU', norm: True, cnn_depth: 24, kernel_size: 4, minres: 4, mlp_layers: 5, mlp_units: 1024, cnn_sigmoid: False, image_dist: mse, vector_dist: symlog_mse, outscale: 1.0}
   actor:
     {layers: 2, dist: 'normal', entropy: 3e-4, unimix_ratio: 0.01, std: 'learned', min_std: 0.1, max_std: 1.0, temp: 0.1, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 1.0}
   critic:
@@ -64,7 +64,7 @@ defaults:
   # Training
   batch_size: 16
   batch_length: 64
-  train_ratio: 512
+  train_ratio: 32
   envs: 512
   pretrain: 100
   model_lr: 1e-4
