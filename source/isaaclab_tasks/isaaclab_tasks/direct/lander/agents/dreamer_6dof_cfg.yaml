@@ -7,7 +7,7 @@ defaults:
   offline_evaldir: ''
   seed: 0
   deterministic_run: False
-  steps: 4e5 # 7e5
+  steps: 7e5
   parallel: False
   eval_every: 5e3
   eval_episode_num: 10
@@ -62,7 +62,7 @@ defaults:
   initial: 'learned'
 
   # Training
-  batch_size: 4 # 20
+  batch_size: 20
   batch_length: 256
   train_ratio: 256
   envs: 8
@@ -70,7 +70,7 @@ defaults:
   model_lr: 1e-4
   opt_eps: 1e-8
   grad_clip: 1000
-  dataset_size: 3000000
+  dataset_size: 300000
   opt: 'adam'
 
   # Behavior.

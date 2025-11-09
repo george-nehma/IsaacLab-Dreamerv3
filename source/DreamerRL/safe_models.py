@@ -115,6 +115,7 @@ class WorldModel(nn.Module):
         self._scales = dict(
             reward=config.reward_head["loss_scale"],
             cont=config.cont_head["loss_scale"],
+            safety=config.safety_head["loss_scale"],
         )
 
     def _train(self, data):

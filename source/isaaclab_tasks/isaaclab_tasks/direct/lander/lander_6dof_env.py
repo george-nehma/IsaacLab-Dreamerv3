@@ -165,8 +165,8 @@ class Lander6DOFEnvCfg(DirectRLEnvCfg):
     observation_space = state_space # q0, q1, q2, q3, pos x, pos y, pos z, vel x, vel y, vel z, om_x, om_y, om_z, contact bool,
 
     # reward scales
-    lin_vel_reward_scale = -1.25
-    pos_reward_scale = -1.25
+    lin_vel_reward_scale = -1.3
+    pos_reward_scale = -1.3
     du_reward_scale = -0.05
     mpower_reward_scale = -0.006
     spower_reward_scale = -0.003
@@ -423,7 +423,7 @@ class Lander6DOFEnv(DirectRLEnv):
         # reward[~self._aligned & self._missed] = 0
         reward[~self._aligned & self._landed] = -30
         reward[self._landed] += 200
-        reward[~self._aligned & (self._crashed | self._missed)] = -40 # reward[~self._aligned & self._crashed] = -40
+        reward[~self._aligned & self._crashed] = -40 # reward[~self._aligned & (self._crashed | self._missed)] = -40
         reward[self._aligned] += 0.5
         reward[self.aligned_history.all(dim=1) & self._landed] += 500
 
