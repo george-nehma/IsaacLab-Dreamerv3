@@ -178,10 +178,10 @@ class LanderStatesEnv(DirectRLEnv):
     def __init__(self, cfg: LanderStatesEnvCfg, render_mode: str | None = None, **kwargs):
         super().__init__(cfg, render_mode, **kwargs)
 
-        self.actionHigh = np.full(self.action_space.shape, 1000, dtype=np.float32) # max thrust of RCS thrusters [N] and moment 
-        self.actionLow = np.full(self.action_space.shape, -1000, dtype=np.float32) # min thrust of RCS thrusters [N] and moment
+        self.actionHigh = np.full(self.action_space.shape, 800, dtype=np.float32) # max thrust of RCS thrusters [N] and moment 
+        self.actionLow = np.full(self.action_space.shape, -800, dtype=np.float32) # min thrust of RCS thrusters [N] and moment
         self.actionLow[:,-1] = 0.0
-        self.actionHigh[:,-1] = 4000.0
+        self.actionHigh[:,-1] = 43000.0
         self.action_space = gym.spaces.Box(dtype=np.float32, shape=self.actionHigh.shape ,low=self.actionLow, high=self.actionHigh)
         self.prev_action = torch.zeros(self.action_space.shape, device=self.device)
 

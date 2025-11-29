@@ -7,7 +7,7 @@ defaults:
   offline_evaldir: ''
   seed: 0
   deterministic_run: False
-  steps: 4e5
+  steps: 7e5
   parallel: False
   eval_every: 5e3
   eval_episode_num: 10
@@ -15,12 +15,12 @@ defaults:
   reset_every: 0
   device: 'cuda:0'
   compile: True
-  precision: 16
+  precision: 32
   debug: False
   video_pred_log: False
 
   # Environment
-  task: 'Isaac-PlanetaryLander-Direct-6DOF-v0'
+  task: 'Isaac-PlanetaryLander-Direct-6DOF-Manual-v0'
   obs_keys: ['state','reward', is_first','is_last','is_terminal']
   size: [64, 64]
   action_repeat: 2
@@ -30,8 +30,8 @@ defaults:
   reward_EMA: True
 
   # Model
-  dyn_hidden: 256 # 1024 # 512
-  dyn_deter: 256 # 1024 # 512
+  dyn_hidden: 512
+  dyn_deter: 512
   dyn_stoch: 32
   dyn_discrete: 32
   dyn_rec_depth: 1
@@ -39,7 +39,7 @@ defaults:
   dyn_std_act: 'sigmoid2'
   dyn_min_std: 0.1
   grad_heads: ['decoder', 'reward', 'cont']
-  units: 1024 # 512
+  units: 512
   act: 'SiLU'
   norm: True
   encoder:
@@ -47,11 +47,11 @@ defaults:
   decoder:
     {mlp_keys: 'state', cnn_keys: '$^', act: 'SiLU', norm: True, cnn_depth: 32, kernel_size: 4, minres: 4, mlp_layers: 5, mlp_units: 1024, cnn_sigmoid: False, image_dist: mse, vector_dist: symlog_mse, outscale: 1.0}
   actor:
-    {layers: 4, dist: 'normal', entropy: 3e-4, unimix_ratio: 0.01, std: 'learned', min_std: 0.1, max_std: 1.0, temp: 0.1, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 1.0}
+    {layers: 2, dist: 'normal', entropy: 3e-4, unimix_ratio: 0.01, std: 'learned', min_std: 0.1, max_std: 1.0, temp: 0.1, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 1.0}
   critic:
-    {layers: 4, dist: 'symlog_disc', slow_target: True, slow_target_update: 1, slow_target_fraction: 0.02, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 0.0}
+    {layers: 2, dist: 'symlog_disc', slow_target: True, slow_target_update: 1, slow_target_fraction: 0.02, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 0.0}
   reward_head:
-    {layers: 4, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0.0}
+    {layers: 2, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0.0}
   cont_head:
     {layers: 2, loss_scale: 1.0, outscale: 1.0}
   dyn_scale: 0.5
@@ -62,9 +62,9 @@ defaults:
   initial: 'learned'
 
   # Training
-  batch_size: 16 #20
-  batch_length: 128 #256
-  train_ratio: 1024
+  batch_size: 20
+  batch_length: 256
+  train_ratio: 256
   envs: 8
   pretrain: 100
   model_lr: 1e-4

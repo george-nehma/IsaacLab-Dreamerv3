@@ -48,3 +48,13 @@ gym.register(
         "dreamer_cfg_entry_point": f"{agents.__name__}:dreamer_6dof_cfg.yaml",
     },
 )
+
+gym.register(
+    id="Isaac-PlanetaryLander-Direct-6DOF-Manual-v0",
+    entry_point=f"{__name__}.lander_6dof_manual_env:Lander6DOFManualEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.lander_6dof_manual_env:Lander6DOFManualEnvCfg",
+        "dreamer_cfg_entry_point": f"{agents.__name__}:dreamer_6dof_manual_cfg.yaml",
+    },
+)

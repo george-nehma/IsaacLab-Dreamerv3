@@ -102,6 +102,8 @@ import torch
 from torch import nn
 from torch import distributions as torchd
 
+import pygame
+
 import matplotlib
 matplotlib.use("Agg") 
 import matplotlib.pyplot as plt
@@ -292,222 +294,6 @@ def make_env(env_cfg, config, mode, id):
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="traj"):
-    """
-    Plots state trajectories, control actions, rewards, and contact over time.
-
-    Args:
-        states (ndarray): (n,7) or (n,14). Order:
-                          (7)  = [x, y, z, vx, vy, vz, contact]
-                          (8)  = [qw, qx, qy, qz, wx, wy, wz, contact]
-                          (14) = [qw, qx, qy, qz, x, y, z, vx, vy, vz, wx, wy, wz, contact]
-        actions (ndarray): (n,3) or (n,6).
-        rewards (ndarray): (n,).
-        dt (float): timestep size.
-        save_prefix (str): prefix for saved figures.
-    """
-    n, sdim = states.shape
-    
-    if sdim == 8 or sdim == 14:
-        w = states[:, 0]
-        x = states[:, 1]
-        y = states[:, 2]
-        z = states[:, 3]
-        # Roll (x-axis rotation)
-        t0 = 2.0 * (w * x + y * z)
-        t1 = 1.0 - 2.0 * (x * x + y * y)
-        roll = np.arctan2(t0, t1)
-
-        # Pitch (y-axis rotation)
-        t2 = 2.0 * (w * y - z * x)
-        t2 = np.clip(t2, -1.0, 1.0) # Clamp t2 to avoid invalid arcsin input
-        pitch = np.arcsin(t2)
-
-        # Yaw (z-axis rotation)
-        t3 = 2.0 * (w * z + x * y)
-        t4 = 1.0 - 2.0 * (y * y + z * z)
-        yaw = np.arctan2(t3, t4)
-
-        euler_angles = np.stack([roll*180/np.pi, pitch*180/np.pi, yaw*180/np.pi], axis=1)
-        states = np.concatenate((euler_angles, states[:, 4:]), axis=1) if (states.shape[1] == 14 or states.shape[1] == 8) else states
-        states[:,-3:] = states[:,-3:]*180/np.pi # convert angular velocity to deg/s
-
-        timesteps = np.arange(states.shape[0]) * dt
-        n, sdim = states.shape
-        _, adim = actions.shape
-
-    # --- State labels ---
-
-    if sdim == 7:
-        state_labels = ["x [m]", "y [m]", "z [m]", "vx [m/s]", "vy [m/s]", "vz [m/s]", "contact"]
-        action_labels = ["Fx [N]", "Fy [N]", "Fz [N]"]
-        plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]"]
-        _, adim = actions.shape
-    
-    elif sdim == 14:
-        state_labels = ["qw", "qx", "qy", "qz",
-                        "x [m]", "y [m]", "z [m]",
-                        "vx [m/s]", "vy [m/s]", "vz [m/s]",
-                        "wx [deg/s]", "wy [deg/s]", "wz [deg/s]",
-                        "contact"]
-        action_labels = [ "Fx [N]", "Fy [N]", "Fz [N]", "Mx [Nm]", "My [Nm]", "Mz [Nm]"]
-        plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]", "Fx + Mx [N/Nm]", " Fx + My [N/Nm]", "Mz [Nm]"]
-        
-
-    elif sdim == 13:
-        state_labels = ["roll [deg]", "pitch [deg]", "yaw [deg]",
-                        "x [m]", "y [m]", "z [m]",
-                        "vx [m/s]", "vy [m/s]", "vz [m/s]",
-                        "wx [deg/s]", "wy [deg/s]", "wz [deg/s]",
-                        "contact"]
-        action_labels = [ "Fx [N]", "Fy [N]", "Fz [N]", "Mx [Nm]", "My [Nm]", "Mz [Nm]"]
-        plot_titles = ["Fx [N]", "Fy [N]", "Fz [N]", "Fx + Mx [N/Nm]", " Fx + My [N/Nm]", "Mz [Nm]"]
-        
-    else:
-        raise ValueError("States must be (n,7), (n,8) or (n,14).")
-
-    
-
-    # --- Plot all states dynamically ---
-    nrows = int(np.ceil(sdim / 2))
-    fig1, axes1 = plt.subplots(nrows, 2, figsize=(12, 2*nrows), sharex=True)
-    axes1 = axes1.flatten()
-
-    for i in range(sdim):
-        axes1[i].plot(timesteps, states[:, i], label=state_labels[i])
-        axes1[i].set_title(state_labels[i])
-        axes1[i].grid(True)
-        axes1[i].legend(loc="upper right")
-
-    # Hide unused subplots
-    for j in range(sdim, len(axes1)):
-        fig1.delaxes(axes1[j])
-
-    axes1[-2].set_xlabel("Seconds")
-    axes1[-1].set_xlabel("Seconds")
-
-    fig1.suptitle("State Trajectories", fontsize=14)
-    fig1.tight_layout(rect=[0, 0, 1, 0.97])
-    fig1.savefig(f"{save_prefix}_states.png", dpi=300)
-    plt.close(fig1)
-
-    # --- Controls + Reward + Contact ---
-    fig2, axes2 = plt.subplots(3, 2, figsize=(12, 10), sharex=True)
-
-    for i in range(adim):
-        if i == 5:
-            axes2[i % 3, 1].step(timesteps, actions[:, i], 
-                                where="post", label=action_labels[i], color="orange")
-            axes2[i % 3, 1].set_title(plot_titles[i])
-            axes2[i % 3, 1].grid(True)
-            axes2[i % 3, 1].legend(loc="upper right")
-        else:
-            axes2[i % 3, 0].step(timesteps, actions[:, i], 
-                                where="post", label=action_labels[i])
-            axes2[i % 3, 0].set_title(plot_titles[i])
-            axes2[i % 3, 0].grid(True)
-            axes2[i % 3, 0].legend(loc="upper right")
-
-    # Reward
-    axes2[0, 1].plot(timesteps, rewards, label="Reward", color="purple")
-    axes2[0, 1].set_title("Reward")
-    axes2[0, 1].grid(True)
-    axes2[0, 1].legend(loc="upper right")
-
-    # Contact (always last state)
-    axes2[1, 1].step(timesteps, states[:, -1], where="post", 
-                     label="Contact", color="red")
-    axes2[1, 1].set_title("Contact")
-    axes2[1, 1].grid(True)
-    axes2[1, 1].legend(loc="upper right")
-
-    # Remove unused last subplot
-    if adim == 3:
-        fig2.delaxes(axes2[2, 1])
-
-    axes2[2, 0].set_xlabel("Seconds")
-    axes2[1, 1].set_xlabel("Seconds")
-    fig2.suptitle("Controls, Reward, and Contact", fontsize=14)
-    fig2.tight_layout(rect=[0, 0, 1, 0.96])
-    fig2.savefig(f"{save_prefix}_controls.png", dpi=300)
-    plt.close(fig2)
-
-
-def plot_multiple(all_results, dt=0.01):
-    # Make sure output folder exists
-    os.makedirs("plots", exist_ok=True)
-
-    euler_idx = [0, 1, 2]        # roll, pitch, yaw
-    pos_idx = [3, 4, 5]          # x, y, z
-    vel_idx = [6, 7, 8]          # vx, vy, vz
-    ang_vel_idx = [9, 10, 11]    # wx, wy, wz
-    moments_idx = [3, 4, 5]      # mx, my, mz
-    forces_idx = [0, 1, 2]      # tx, ty, tz
-    rewards_idx = [0]            # rewards
-
-    groups = {
-        "Position": pos_idx,
-        "Velocity": vel_idx,
-        "Euler Angles": euler_idx,
-        "Angular Velocities": ang_vel_idx,
-        "Moments": moments_idx,
-        "Forces": forces_idx,
-        "Rewards": rewards_idx,
-    }
-
-    for group_name, indices in groups.items():
-        fig, axes = plt.subplots(1, 3, figsize=(15, 4))  # 1 row, 3 columns
-        axes = axes.flatten()
-
-        for run_idx, run in enumerate(all_results):
-            states = run['states']  # shape [T, state_dim]
-            actions = run['actions']  # shape [T, action_dim]
-            rewards = run['rewards']  # shape [T, ]
-
-            # Compute Euler angles from quaternion if needed
-            if states.shape[1] >= 4:
-                w = states[:, 0]
-                x = states[:, 1]
-                y = states[:, 2]
-                z = states[:, 3]
-
-                t0 = 2.0 * (w * x + y * z)
-                t1 = 1.0 - 2.0 * (x * x + y * y)
-                roll = np.arctan2(t0, t1)
-
-                t2 = 2.0 * (w * y - z * x)
-                t2 = np.clip(t2, -1.0, 1.0)
-                pitch = np.arcsin(t2)
-
-                t3 = 2.0 * (w * z + x * y)
-                t4 = 1.0 - 2.0 * (y * y + z * z)
-                yaw = np.arctan2(t3, t4)
-
-                euler_angles = np.stack([roll*180/np.pi, pitch*180/np.pi, yaw*180/np.pi], axis=1)
-                if states.shape[1] in [8, 14]:
-                    states = np.concatenate((euler_angles, states[:, 4:]), axis=1)
-                states[:, -3:] = states[:, -3:] * 180/np.pi  # angular velocities to deg/s
-
-            timesteps = np.arange(states.shape[0]) * dt
-            if states.size == 0:
-                continue
-
-            for i, idx in enumerate(indices):
-                if group_name == "Forces" or group_name == "Moments":
-                    axes[i].plot(timesteps, actions[:, idx])
-                else:
-                    axes[i].plot(timesteps, states[:, idx])
-                axes[i].set_xlabel('Time [s]')
-                axes[i].set_ylabel(f'{group_name}[{i}]')
-                axes[i].grid(True)
-
-        plt.suptitle(group_name)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.savefig(f"plots/{group_name}.png", dpi=300)
-        plt.close()
-
-
-
 
 @hydra_task_config(args_cli.task, agent_cfg_entry_point)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, experiment_cfg: dict, dreamer_cfg):
@@ -587,7 +373,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     except AttributeError:
         dt = test_env.unwrapped.step_dt
 
-    num_runs = 1
+
+    pygame.init()
+    pygame.joystick.init()
+
+    # if pygame.joystick.get_count() == 0:
+    #     print("No joystick connected.")
+    #     return
+    joystick = pygame.joystick.Joystick(0)
+
+    joystick.init()
+    print(f"Joystick initialized: {joystick.get_name()}")
+
+    
+
+    num_runs = 5
     all_results = []  # will store results of all simulations
 
     for run_idx in range(num_runs):
@@ -625,6 +425,22 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
                 ]
             else:
                 action = np.array(action)
+
+            pygame.event.pump()  # Process event queue
+
+            main_engine = unnormalize(joystick.get_axis(5),0,43000) # -1 to 1
+            pitch = unnormalize(joystick.get_axis(1),-400,400)  # -1 to 1
+            roll = unnormalize(joystick.get_axis(0),-400,400)   # -1 to 1
+            yaw = unnormalize(joystick.get_axis(3),-400,400)    # -1 to 1
+
+            print(f"""
+                    Main Engine: {main_engine:.2f}, 
+                    Pitch: {pitch:.2f}, 
+                    Roll: {roll:.2f}, 
+                    Yaw: {yaw:.2f}
+                """)
+
+            action[0]['action'] = np.array([main_engine, pitch, roll, yaw])
             # action[0]['action'] = alpha*action_prev + (1-alpha)*action[0]['action']
             r = test_env.step(action)
             results = r()
@@ -677,7 +493,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     #     timesteps = np.arange(state_traj.shape[0])
     #     plot_trajectory(state_traj, actions, rewards, timesteps, dt=dt, save_prefix="traj")
  
-    plot_multiple(all_results)
     # close the simulator
     test_env.close()
 
@@ -704,7 +519,7 @@ if __name__ == "__main__":
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
     # get checkpoint path
     resume_path = get_checkpoint_path(log_root_path) # gets last run
-    # log_dir = os.path.join(log_root_path, "20251126_050435")
+    # resume_path = os.path.join("20251113_043058",log_root_path)
     log_dir = os.path.dirname(resume_path)
     cfg_path = os.path.join(log_dir, "dreamer_cfgs.pkl")
     with open(cfg_path, 'rb') as f:
