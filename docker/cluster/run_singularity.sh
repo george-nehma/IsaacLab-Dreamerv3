@@ -1,4 +1,22 @@
 #!/usr/bin/env bash
+# === Per-job TMPDIR for Isaac Lab on Slurm ===
+
+if [ -z "${TMPDIR:-}" ]; then
+
+  if [ -n "${SLURM_JOB_ID:-}" ]; then
+
+    export TMPDIR="/tmp/${USER}-isaac-${SLURM_JOB_ID}"
+
+  else
+
+    export TMPDIR="/tmp/${USER}-isaac-$$"
+
+  fi
+
+fi
+
+mkdir -p "${TMPDIR}/docker-isaac-sim"
+
 
 echo "(run_singularity.py): Called on compute node from current isaaclab directory $1 with container profile $2 and arguments ${@:3}"
 
@@ -68,7 +86,7 @@ apptainer exec \
     -B $TMPDIR/docker-isaac-sim/documents:${DOCKER_USER_HOME}/Documents:rw \
     -B $TMPDIR/$dir_name:/workspace/isaaclab:rw \
     -B $CLUSTER_ISAACLAB_DIR/logs:/workspace/isaaclab/logs:rw \
-    --nv --writable --containall $TMPDIR/$2.sif \
+    --nv $TMPDIR/$2.sif \
     bash -c "export ISAACLAB_PATH=/workspace/isaaclab && cd /workspace/isaaclab && /isaac-sim/python.sh ${CLUSTER_PYTHON_EXECUTABLE} ${@:3}"
 
 # copy resulting cache files back to host

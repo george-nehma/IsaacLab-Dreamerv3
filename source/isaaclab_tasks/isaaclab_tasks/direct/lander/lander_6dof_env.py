@@ -59,7 +59,7 @@ class Lander6DOFEnvWindow(BaseEnvWindow):
 @configclass
 class Lander6DOFEnvCfg(DirectRLEnvCfg):
     # env
-    decimation = 12
+    decimation = 6
     episode_length_s = 90.0
     debug_vis = True
     # action_scale = 100.0  # [N]
@@ -98,7 +98,7 @@ class Lander6DOFEnvCfg(DirectRLEnvCfg):
 
     # simulation
     sim: SimulationCfg = SimulationCfg(
-        dt=1 / 120,
+        dt=1 / 60,
         render_interval=decimation,
         gravity = (0.0, 0.0, -1.62),  # [m/s^2] 3.73
         physx=PhysxCfg(
@@ -175,7 +175,7 @@ class Lander6DOFEnvCfg(DirectRLEnvCfg):
     du_reward_scale = -0.1
 
     vlim = 0.3  # [m/s] linear velocity limit for landing
-    rlim = 2
+    rlim = 2.0  # [m] position radius limit for landing
     tlim = 2
     olim = 0.05
     prev_shaping = None
@@ -204,8 +204,8 @@ class Lander6DOFEnv(DirectRLEnv):
 
         # self.actionHigh = np.full(self.action_space.shape, 1000, dtype=np.float32) # max thrust of RCS thrusters [N] and moment [Nm] 
         # self.actionLow = np.full(self.action_space.shape, -1000, dtype=np.float32) # min thrust of RCS thrusters [N] and moment [Nm] 
-        self.actionHigh = np.full(self.action_space.shape, 3136, dtype=np.float32) # max thrust of RCS thrusters [N] and moment [Nm] 4*400N*1.96m
         self.actionLow = np.full(self.action_space.shape, -3136, dtype=np.float32) # min thrust of RCS thrusters [N] and moment [Nm] 4*400N*1.96m
+        self.actionHigh = np.full(self.action_space.shape, 3136, dtype=np.float32) # max thrust of RCS thrusters [N] and moment [Nm] 4*400N*1.96m
         self.actionLow[:,0] = -800.0 
         self.actionHigh[:,0] = 800.0
         self.actionLow[:,1] = -800.0
@@ -289,10 +289,10 @@ class Lander6DOFEnv(DirectRLEnv):
 
     # takes normalised action and convert to real thrust and moment. Fz maps [-1,1] to [0, 1]
     def _pre_physics_step(self, actions: torch.Tensor):
-        # self._actions = actions.clone().clamp(-1.0, 1.0)
         self._actions = actions.clone().clamp(torch.tensor(self.action_space.low, device=self.device), torch.tensor(self.action_space.high, device=self.device))
         # alpha = 0.5
         # self._actions = (1-alpha)*self._actions + alpha*self.prev_action
+        # self.d_action = self._actions - self.prev_action
         self.prev_action = self._actions.clone()
         xthrust = self._actions[:,0]  # x thrust
         ythrust = self._actions[:,1]  # y thrust
@@ -388,7 +388,7 @@ class Lander6DOFEnv(DirectRLEnv):
         self.aligned_history[:, -1] = self._aligned
 
         norm_actions = torch.norm(self._actions[:,3:], dim=1)/torch.tensor(self.actionHigh[:,3],device=self.device) # moment RCS penalty
-        # du = torch.norm(self.d_action/self.actionHigh, dim=1)
+        du = torch.norm(self.d_action, dim=1)
 
         # --- Attitude reward ---
         alignment_penalty = (1/10)-1/(10*torch.exp(-self.alignment/(0.4)))
@@ -421,8 +421,15 @@ class Lander6DOFEnv(DirectRLEnv):
         # self._missed = contact_landed & (~pos_ok) 
         # pos_for_reward = self._pos.clone()
         # pos_for_reward[:,2] = pos_for_reward[:,2]/self._initial_state[:,2]
-        pos_reward = self.cfg.pos_reward_scale * torch.norm(self._pos, dim=1) #**2
-        vel_reward = self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1) #**2
+        w_xy = 1
+        w_z = 1 #0.6
+        pos_error = torch.sqrt(
+            w_xy * self._pos[:,0]**2 +
+            w_xy * self._pos[:,1]**2 +
+            w_z  * self._pos[:,2]**2
+        )
+        pos_reward = self.cfg.pos_reward_scale *  pos_error #torch.norm(self._pos, dim=1)
+        vel_reward = self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1)
         shaping = pos_reward + vel_reward # - 0 * np.linalg.norm(self._current_action - self._prev_action)**2
 
         if self.cfg.prev_shaping is not None:
@@ -437,18 +444,13 @@ class Lander6DOFEnv(DirectRLEnv):
         main_engine_pen = -0.001*(self._actions[:,2]/torch.tensor(self.actionHigh[:,2],device=self.device))
         rcs_translation_pen = -0.001*torch.norm(self._actions[:,0:2], dim=1)/torch.tensor(self.actionHigh[:,0],device=self.device)
         reward += main_engine_pen + rcs_translation_pen
-        # reward += self.cfg.mpower_reward_scale * self._mpower + self.cfg.spower_reward_scale * self._spower 
-        # reward += 1 * torch.where(self._lin_vel[:,2] > 0, -torch.ones_like(self._lin_vel[:,2]), torch.zeros_like(self._lin_vel[:,2]))
-
-        # mask_contact = (~self._crashed) & (contact > 0.5)
-        # reward[mask_contact] += self.cfg.contact_reward_scale * contact[mask_contact]
 
         self.out_of_bounds_x = torch.logical_or(self._robot.data.root_pos_w[:,0] > 40, self._robot.data.root_pos_w[:,0] < -40)
         self.out_of_bounds_y = torch.logical_or(self._robot.data.root_pos_w[:,1] > 40, self._robot.data.root_pos_w[:,1] < -40)
         self.out_of_bounds = torch.logical_or(self.out_of_bounds_x, self.out_of_bounds_y)
 
         # --- Penalties and Bonuses ---
-        reward[angle_delta > np.deg2rad(30)] -= 50 # penalise action more instead
+        # reward[angle_delta > np.deg2rad(30)] -= 50 # penalise action more instead
         # reward[~self._aligned & (self.omega > np.deg2rad(0.5)) & (self._landed | self._crashed)] = -500
         # reward[~self._aligned & self._missed] = 0
         # reward[~self._aligned & self._landed] = -30
@@ -493,7 +495,7 @@ class Lander6DOFEnv(DirectRLEnv):
         for key, value in rewards.items():
             self._episode_sums[key] += value
 
-        if self.num_envs == 8:
+        if self.num_envs == 1:
             with torch.no_grad():
 
                 # Bonus/Penalty events

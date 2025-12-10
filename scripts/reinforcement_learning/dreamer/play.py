@@ -433,7 +433,7 @@ def plot_trajectory(states, actions, rewards, timesteps, dt=0.01, save_prefix="t
     plt.close(fig2)
 
 
-def plot_multiple(all_results, dt=0.01):
+def plot_multiple(all_results, dt=0.1):
     # Make sure output folder exists
     os.makedirs("plots", exist_ok=True)
 
@@ -453,58 +453,85 @@ def plot_multiple(all_results, dt=0.01):
         "Moments": moments_idx,
         "Forces": forces_idx,
         "Rewards": rewards_idx,
+        "3D Plot": pos_idx,
     }
 
     for group_name, indices in groups.items():
-        fig, axes = plt.subplots(1, 3, figsize=(15, 4))  # 1 row, 3 columns
-        axes = axes.flatten()
 
-        for run_idx, run in enumerate(all_results):
-            states = run['states']  # shape [T, state_dim]
-            actions = run['actions']  # shape [T, action_dim]
-            rewards = run['rewards']  # shape [T, ]
+        if group_name == "3D Plot":
+            fig = plt.figure(figsize=(8, 6))
+            ax = fig.add_subplot(111, projection='3d')
+            ax.view_init(elev=30, azim=45)
 
-            # Compute Euler angles from quaternion if needed
-            if states.shape[1] >= 4:
-                w = states[:, 0]
-                x = states[:, 1]
-                y = states[:, 2]
-                z = states[:, 3]
+            for run_idx, run in enumerate(all_results):
+                states = run['states']  # shape [T, state_dim]
 
-                t0 = 2.0 * (w * x + y * z)
-                t1 = 1.0 - 2.0 * (x * x + y * y)
-                roll = np.arctan2(t0, t1)
+                # Extract positions
+                x = states[:, 4]
+                y = states[:, 5]
+                z = states[:, 6]
 
-                t2 = 2.0 * (w * y - z * x)
-                t2 = np.clip(t2, -1.0, 1.0)
-                pitch = np.arcsin(t2)
+                ax.plot(x, y, z, label=f'Run {run_idx+1}')
 
-                t3 = 2.0 * (w * z + x * y)
-                t4 = 1.0 - 2.0 * (y * y + z * z)
-                yaw = np.arctan2(t3, t4)
+            ax.set_xlabel('X [m]')
+            ax.set_ylabel('Y [m]')
+            ax.set_zlabel('Z [m]')
+            ax.set_title('3D Trajectory Plot')
+            ax.set_ylim([-40, 40])
+            ax.set_xlim([-40, 40])
+            plt.savefig(f"plots/3D_Trajectory.png", dpi=300)
+            plt.close()
+            continue
+        else:
+            fig, axes = plt.subplots(1, 3, figsize=(15, 4))  # 1 row, 3 columns
+            axes = axes.flatten()
 
-                euler_angles = np.stack([roll*180/np.pi, pitch*180/np.pi, yaw*180/np.pi], axis=1)
-                if states.shape[1] in [8, 14]:
-                    states = np.concatenate((euler_angles, states[:, 4:]), axis=1)
-                states[:, -3:] = states[:, -3:] * 180/np.pi  # angular velocities to deg/s
+            for run_idx, run in enumerate(all_results):
+                states = run['states']  # shape [T, state_dim]
+                actions = run['actions']  # shape [T, action_dim]
+                rewards = run['rewards']  # shape [T, ]
 
-            timesteps = np.arange(states.shape[0]) * dt
-            if states.size == 0:
-                continue
+                # Compute Euler angles from quaternion if needed
+                if states.shape[1] >= 4:
+                    w = states[:, 0]
+                    x = states[:, 1]
+                    y = states[:, 2]
+                    z = states[:, 3]
 
-            for i, idx in enumerate(indices):
-                if group_name == "Forces" or group_name == "Moments":
-                    axes[i].plot(timesteps, actions[:, idx])
-                else:
-                    axes[i].plot(timesteps, states[:, idx])
-                axes[i].set_xlabel('Time [s]')
-                axes[i].set_ylabel(f'{group_name}[{i}]')
-                axes[i].grid(True)
+                    t0 = 2.0 * (w * x + y * z)
+                    t1 = 1.0 - 2.0 * (x * x + y * y)
+                    roll = np.arctan2(t0, t1)
 
-        plt.suptitle(group_name)
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.savefig(f"plots/{group_name}.png", dpi=300)
-        plt.close()
+                    t2 = 2.0 * (w * y - z * x)
+                    t2 = np.clip(t2, -1.0, 1.0)
+                    pitch = np.arcsin(t2)
+
+                    t3 = 2.0 * (w * z + x * y)
+                    t4 = 1.0 - 2.0 * (y * y + z * z)
+                    yaw = np.arctan2(t3, t4)
+
+                    euler_angles = np.stack([roll*180/np.pi, pitch*180/np.pi, yaw*180/np.pi], axis=1)
+                    if states.shape[1] in [8, 14]:
+                        states = np.concatenate((euler_angles, states[:, 4:]), axis=1)
+                    states[:, -3:] = states[:, -3:] * 180/np.pi  # angular velocities to deg/s
+
+                timesteps = np.arange(states.shape[0]) * dt
+                if states.size == 0:
+                    continue
+
+                for i, idx in enumerate(indices):
+                    if group_name == "Forces" or group_name == "Moments":
+                        axes[i].plot(timesteps, actions[:, idx])
+                    else:
+                        axes[i].plot(timesteps, states[:, idx])
+                    axes[i].set_xlabel('Time [s]')
+                    axes[i].set_ylabel(f'{group_name}[{i}]')
+                    axes[i].grid(True)
+
+            plt.suptitle(group_name)
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            plt.savefig(f"plots/{group_name}.png", dpi=300)
+            plt.close()
 
 
 
@@ -587,7 +614,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
     except AttributeError:
         dt = test_env.unwrapped.step_dt
 
-    num_runs = 1
+    num_runs = 10
     all_results = []  # will store results of all simulations
 
     for run_idx in range(num_runs):
@@ -668,16 +695,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
             'rewards': np.array(reward_hist)
         }
         all_results.append(run_results)
-
-    # now all_results is a list of 100 dicts, each containing the simulation history
-
-    
-    # if len(state_hist) > 1:
-    #     state_traj = np.stack(state_hist)
-    #     timesteps = np.arange(state_traj.shape[0])
-    #     plot_trajectory(state_traj, actions, rewards, timesteps, dt=dt, save_prefix="traj")
  
-    plot_multiple(all_results)
+    plot_multiple(all_results, dt)
     # close the simulator
     test_env.close()
 
@@ -695,6 +714,8 @@ if __name__ == "__main__":
         task = "lander_states_direct"
     elif args_cli.task.startswith('Isaac-PlanetaryLander-Direct-6DOF-'):
         task = "lander_6dof_direct"
+    elif args_cli.task.startswith('Isaac-PlanetaryLander-Direct-'):
+        task = "lander_direct"
     elif args_cli.task.startswith('Isaac-Cartpole-Direct-'):
         task = "cartpole_direct"
     elif args_cli.task.startswith('Isaac-Cartpole-RGB-Camera-Direct-'):
@@ -703,9 +724,12 @@ if __name__ == "__main__":
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
     # get checkpoint path
-    resume_path = get_checkpoint_path(log_root_path) # gets last run
-    # log_dir = os.path.join(log_root_path, "20251126_050435")
-    log_dir = os.path.dirname(resume_path)
+    if args_cli.checkpoint is None:
+        resume_path = get_checkpoint_path(log_root_path) # gets last run
+        log_dir = os.path.dirname(resume_path)
+    else:
+        log_dir = os.path.join(log_root_path, args_cli.checkpoint)
+    
     cfg_path = os.path.join(log_dir, "dreamer_cfgs.pkl")
     with open(cfg_path, 'rb') as f:
         config = pickle.load(f)

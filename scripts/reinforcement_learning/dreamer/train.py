@@ -462,7 +462,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             #     dreamer_cfg.evaldir,
             #     logger,
             #     dreamer_cfg,
-            #     is_eval=True,
+            #     is_eval=True, 
             #     episodes=dreamer_cfg.eval_episode_num,
             # )
             # if dreamer_cfg.video_pred_log:
@@ -506,6 +506,9 @@ if __name__ == "__main__":
     elif args_cli.task.startswith('Isaac-PlanetaryLander-Direct-6DOF-'):
         cfg_name = "dreamer_6dof_cfg.yaml"
         exp_name = "lander_6dof_direct"
+    elif args_cli.task.startswith('Isaac-PlanetaryLander-Direct-'):
+        cfg_name = "dreamer_cfg.yaml"
+        exp_name = "lander_direct"
     elif args_cli.task.startswith('Isaac-Cartpole-RGB-Camera-Direct-'):
         cfg_name = "dreamer_camera_cfg.yaml"
         exp_name = "cartpole_camera_direct"
@@ -519,7 +522,11 @@ if __name__ == "__main__":
     configs = yaml.safe_load(
             (pathlib.Path(__file__).resolve().parents[3] / "source" / "isaaclab_tasks" / "isaaclab_tasks" / "direct" / exp_name.split('_', 1)[0] / "agents" / cfg_name).read_text()
         )
-    configs["defaults"]["logdir"] = f"logs/IsaacLab/{exp_name}/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    if args_cli.checkpoint is not None:
+        configs["defaults"]["logdir"] = f"logs/IsaacLab/{exp_name}/{args_cli.checkpoint}"
+        configs["defaults"]["steps"] = configs["defaults"]["steps"] + args_cli.max_iterations if args_cli.max_iterations is not None else configs["defaults"]["steps"]
+    else:
+        configs["defaults"]["logdir"] = f"logs/IsaacLab/{exp_name}/{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     # recursive update function                                 
     def recursive_update(base, update):
         for key, value in update.items():
@@ -536,7 +543,8 @@ if __name__ == "__main__":
     for key, value in sorted(defaults.items(), key=lambda x: x[0]):
         arg_type = tools.args_type(value)
         parser.add_argument(f"--{key}", type=arg_type, default=arg_type(value))
-    main(dreamer_cfg=parser.parse_args(remaining)) # type: ignore
+    dreamer_cfg=parser.parse_args(remaining)
+    main(dreamer_cfg=dreamer_cfg) # type: ignore
 
     end_time = time.time()
     elapsed = end_time - start_time  # seconds
