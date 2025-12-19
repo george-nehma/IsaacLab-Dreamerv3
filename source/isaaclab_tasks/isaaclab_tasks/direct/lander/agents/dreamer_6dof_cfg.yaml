@@ -21,7 +21,7 @@ defaults:
 
   # Environment
   task: 'Isaac-PlanetaryLander-Direct-6DOF-v0'
-  obs_keys: ['state','reward', is_first','is_last','is_terminal']
+  obs_keys: ['state','reward', is_first','is_last','is_terminal'] #, 'is_landed', 'is_crashed']
   size: [64, 64]
   action_repeat: 2
   time_limit: 5000 # train_length = time_limit/action_repeat
@@ -62,8 +62,8 @@ defaults:
   initial: 'learned'
 
   # Training
-  batch_size: 16 #20
-  batch_length: 128 #256
+  batch_size: 16
+  batch_length: 128
   train_ratio: 1024
   envs: 8
   pretrain: 100
