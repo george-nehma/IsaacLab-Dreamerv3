@@ -365,7 +365,7 @@ class Lander6DOFEnv(DirectRLEnv):
 
         contact = self._contact_sensor.data.current_contact_time.squeeze(1)
         
-        self._mpower = (self._actions[:,2] != 0).to(dtype=torch.int, device=self.device) # changed from 4 to 2
+        self._mpower = (self._actions[:,2] != 0).to(dtype=torch.int, device=self.device) 
         self._spower = (self._actions[:, :2] != 0).any(dim=1).to(dtype=torch.int, device=self.device)
     
         reward = torch.zeros(self.num_envs, device=self.device)
@@ -389,7 +389,7 @@ class Lander6DOFEnv(DirectRLEnv):
 
         # --- Attitude reward ---
         alignment_penalty = (1/10)-1/(10*torch.exp(-self.alignment/(0.4)))
-        rcs_penalty = -0.1*norm_actions  #-0.01*norm_actions 
+        rcs_penalty = -0.3*norm_actions  #-0.01*norm_actions 
         ang_vel_penalty = -0.05 * (self._ang_vel.abs().sum(dim=1))
 
         reward = alignment_penalty.clone()
@@ -431,7 +431,8 @@ class Lander6DOFEnv(DirectRLEnv):
             shaping_term = torch.zeros_like(reward)
         self.cfg.prev_shaping = shaping        
 
-        main_engine_pen = -0.001*(self._actions[:,2]/torch.tensor(self.actionHigh[:,2],device=self.device))
+        main_engine_pen = self.cfg.mpower_reward_scale * self._mpower + self.cfg.spower_reward_scale * self._spower
+        # main_engine_pen = -0.001*(self._actions[:,2]/torch.tensor(self.actionHigh[:,2],device=self.device))
         rcs_translation_pen = -0.001*torch.norm(self._actions[:,:2], dim=1)/torch.tensor(self.actionHigh[:,0],device=self.device) #0.0001
         reward += main_engine_pen + rcs_translation_pen
 
