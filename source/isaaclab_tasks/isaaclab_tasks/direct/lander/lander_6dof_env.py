@@ -191,7 +191,7 @@ class Lander6DOFEnvCfg(DirectRLEnvCfg):
     #     )
     
     viewer = ViewerCfg(
-        eye=(20.0, 20.0, 5.0),
+        eye=(20.0, 20.0, 30.0),
         origin_type = "asset_body",
         asset_name = "robot",
         body_name = "MainBody",
@@ -415,11 +415,13 @@ class Lander6DOFEnv(DirectRLEnv):
         hard_landing = (contact > 0) & (~vel_landed)
         self._crashed = hard_landing
 
-        # w_xy = 30 
-        # w_z = 1
-        # pos_error = torch.sqrt( (w_xy*(self._pos[:,0]**2) + w_xy*(self._pos[:,1]**2) + w_z*(self._pos[:,2]**2)) )
+        # alt = torch.clamp(self._altitude, min=10.0)
+
+        w_xy = 1 + 4.5 * (1 - torch.tanh(0.2*(50 - self._altitude)))
+        w_z = 1
+        pos_error = w_xy*torch.norm((self._pos[:,:2]),dim=1) + w_z*(torch.abs(self._pos[:,2]))
         
-        pos_reward = self.cfg.pos_reward_scale * torch.norm(self._pos, dim=1)
+        pos_reward = self.cfg.pos_reward_scale * pos_error # torch.norm(self._pos, dim=1)
         # pos_reward = self.cfg.pos_reward_scale * 10 * torch.norm(self._pos[:,:2], dim=1) + self.cfg.pos_reward_scale * torch.abs(self._pos[:,2])
         vel_reward = self.cfg.lin_vel_reward_scale * torch.norm(self._lin_vel, dim=1)
         shaping = pos_reward + vel_reward 
@@ -431,8 +433,8 @@ class Lander6DOFEnv(DirectRLEnv):
             shaping_term = torch.zeros_like(reward)
         self.cfg.prev_shaping = shaping        
 
-        main_engine_pen = self.cfg.mpower_reward_scale * self._mpower + self.cfg.spower_reward_scale * self._spower
-        # main_engine_pen = -0.001*(self._actions[:,2]/torch.tensor(self.actionHigh[:,2],device=self.device))
+        # main_engine_pen = self.cfg.mpower_reward_scale * self._mpower + self.cfg.spower_reward_scale * self._spower
+        main_engine_pen = -0.001*(self._actions[:,2]/torch.tensor(self.actionHigh[:,2],device=self.device))
         rcs_translation_pen = -0.001*torch.norm(self._actions[:,:2], dim=1)/torch.tensor(self.actionHigh[:,0],device=self.device) #0.0001
         reward += main_engine_pen + rcs_translation_pen
 
@@ -442,9 +444,11 @@ class Lander6DOFEnv(DirectRLEnv):
 
         # --- Penalties and Bonuses ---
         reward[self._aligned & self._landed] += 200
-        reward[~self._aligned & self._crashed] -= 100 # 40
+        reward[~self._aligned & self._crashed] -= 100 
         hovering_pen = 0.001*self._actions[land_pos,2]
         reward[land_pos] -= hovering_pen
+        reward[(self._altitude < 5.0) & (torch.norm(self._lin_vel[:,2])/torch.norm(self._lin_vel[:,:2]) < 3.0)] += -2
+
         reward[self.aligned_history.all(dim=1) & self._landed] += 500
 
         for i in range(self.num_envs):
@@ -488,7 +492,7 @@ class Lander6DOFEnv(DirectRLEnv):
             # Bonus/Penalty events
             self.landed_hist += (self._landed & self._aligned).sum().item()
             self.hard_landing_hist += (hard_landing & ~vel_ok & pos_ok).sum().item()
-            self.missed_hist += (vel_ok & ~pos_ok).sum().item()
+            self.missed_hist += (vel_ok & ~pos_ok & (contact > 0)).sum().item()
             self.aligned_hist += (self._aligned).sum().item()
             self.crashed_hist += (self._crashed).sum().item()
 
@@ -497,9 +501,12 @@ class Lander6DOFEnv(DirectRLEnv):
             print(f"Attitude term:       mean={alignment_penalty.mean():.3f}, std={alignment_penalty.std():.3f}")
             print(f"RCS term:            mean={rcs_penalty.mean():.3f}, std={rcs_penalty.std():.3f}")
             print(f"Angular Vel term:    mean={ang_vel_penalty.mean():.3f}, std={ang_vel_penalty.std():.3f}")
-            print(f"Position term:       mean={pos_reward.mean():.3f}, std={pos_reward.std():.3f}")
-            print(f"Velocity term:       mean={vel_reward.mean():.3f}, std={vel_reward.std():.3f}")
-            # print(f"Velocity Alignment term: mean={velocity_align.mean():.3f}, std={velocity_align.std():.3f}")
+            # print(f"Position term:       mean={pos_reward.mean():.3f}, std={pos_reward.std():.3f}")
+            # print(f"Velocity term:       mean={vel_reward.mean():.3f}, std={vel_reward.std():.3f}")
+            print(f"Shaping term:        mean={shaping_term.mean():.3f}, std={shaping_term.std():.3f}")
+            print(f"Main Engine Penalty: mean={main_engine_pen.mean():.3f}, std={main_engine_pen.std():.3f}")
+            print(f"RCS Translation Pen: mean={rcs_translation_pen.mean():.3f}, std={rcs_translation_pen.std():.3f}")
+            print(f"Hovering Penalty:    mean={hovering_pen.mean():.3f}, std={hovering_pen.std():.3f}")
             print(f"--- Event counts ---")
             print(f"Landed: {self.landed_hist}, Missed: {self.missed_hist}, Hard Landing: {self.hard_landing_hist}, Aligned: {self.aligned_hist}, Crashed: {self.crashed_hist}")
             print(f"Total reward mean:  {reward.mean():.3f}, std={reward.std():.3f}")

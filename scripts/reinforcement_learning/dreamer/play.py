@@ -657,7 +657,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, expe
 
     torch.save(all_results, os.path.join(logdir, f"play_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pt"))
 
-    center=np.array([10, -5])
+    center=np.array([0, -0])
     plot_multiple(all_results, dt, center)
     plot_landing(all_results, dt, center)
     # close the simulator
